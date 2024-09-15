@@ -10,6 +10,7 @@ pub struct MonthlySnapshot {
     pub income: u32,
     pub tax_rate: f32,
     pub taxes: u32,
+    pub withdrawal_rate: f32,
 }
     
 #[derive(Debug)]
@@ -142,7 +143,6 @@ pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
     let mut tax_rates = input.tax_rates.tax_levels.to_vec();
     
     let monthly_return = get_monthly_rate(input.portfolio.annual_return_percent / 100.0);
-    let monthly_inflation = get_monthly_rate(input.expenses.inflation / 100.0);
 
     while !is_everyone_dead(&current_date, &input) {
         // pre-retirement contributions
@@ -161,6 +161,9 @@ pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
             }
         }
 
+        // social security is usually 85% taxable (ignore lower incomes)
+        let taxable_income = (income as f32 * 0.85) as u32;
+        
         // required withdrawals, only after retirement
         let mut withdrawals: u32 = 0;
         if current_date >= retirement_date {
@@ -173,7 +176,7 @@ pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
         let mut taxes: u32 = 0;
         let mut tax_rate: f32 = 0.0;
         (taxes, tax_rate) = get_taxes(
-            withdrawals + income,
+            withdrawals + taxable_income,
             input.tax_rates.standard_deduction,
             &tax_rates);
 
@@ -184,10 +187,25 @@ pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
         println!("taxes = {} tax_rate = {} tax_on_tax = {}", taxes, tax_rate, tax_on_tax);
         taxes = tax_on_tax;
         
-        balance -= taxes;
-        balance -= withdrawals;
-        if (income > expenses) {
+        let mut withdrawal_rate = 0.0;
+        if balance > 0 {
+            withdrawal_rate = ((withdrawals + taxes) * 12) as f32 / balance as f32;
+        }
+            
+        if income > expenses {
             balance += income - expenses;
+        }
+        if balance > taxes {
+            balance -= taxes;
+        }
+        else {
+            balance = 0;
+        }
+        if balance > withdrawals {
+            balance -= withdrawals;
+        }
+        else {
+            balance = 0;
         }
 
         let monthly_balance = MonthlySnapshot {
@@ -197,15 +215,12 @@ pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
             income,
             taxes,
             tax_rate,
+            withdrawal_rate,
         };
 
         simulation_results.monthly_snapshot.push(monthly_balance);
 
         balance = ((balance as f32) * (monthly_return + 1.0)) as u32;
-        expenses = ((expenses as f32) * (monthly_inflation + 1.0)) as u32;
-        for tax_rate in tax_rates.iter_mut() {
-            tax_rate.income = ((tax_rate.income as f32) * (monthly_inflation + 1.0)) as u32;
-        }
 
         current_date = match current_date.checked_add_months(chrono::Months::new(1)) {
             Some(v) => v,

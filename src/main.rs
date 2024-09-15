@@ -1,13 +1,15 @@
 extern crate yaml_rust;
 extern crate chrono;
 use yaml_rust::{YamlLoader, YamlEmitter};
-use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::NaiveDate;
 use std::env;
 use std::fs;
-use std::ops::Deref;
 use std::process;
 
+use crate::historical_scan::run_historical_scan;
+
 mod simulate;
+mod historical_scan;
 
 #[derive(Debug)]
 struct Retiree {
@@ -280,7 +282,7 @@ fn main() {
 
     for (i, monthly_snapshot) in simulation_results.monthly_snapshot.iter().enumerate() {
         if (i % 12) == 0 {
-            print!("{} {} {} {} {} {} {} {}", i, i / 12, monthly_snapshot.date, monthly_snapshot.balance, monthly_snapshot.expenses, monthly_snapshot.income, monthly_snapshot.taxes, monthly_snapshot.tax_rate);
+            print!("{} {} {} {} {} {} {} {} {}", i, i / 12, monthly_snapshot.date, monthly_snapshot.balance, monthly_snapshot.expenses, monthly_snapshot.income, monthly_snapshot.taxes, monthly_snapshot.tax_rate, monthly_snapshot.withdrawal_rate);
             if !retire_printed && (monthly_snapshot.date >= simulation_results.retirement_date) {
                 print!(" Retired!");
                 retire_printed = true;
@@ -288,4 +290,6 @@ fn main() {
             println!();
         }
     }
+
+   run_historical_scan(); 
 }
