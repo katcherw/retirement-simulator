@@ -7,9 +7,12 @@ use std::fs;
 use std::process;
 
 use crate::historical_scan::run_historical_scan;
+use crate::portfolio::Portfolio;
 
 mod simulate;
 mod historical_scan;
+mod utils;
+mod portfolio;
 
 #[derive(Debug)]
 struct Retiree {
@@ -17,37 +20,30 @@ struct Retiree {
     date_of_birth: NaiveDate,
     retirement_age: u32,
     life_expectency: u32,
-    salary_annual: u32,
-    take_home_pay_annual: u32,
+    salary_annual: f32,
+    take_home_pay_annual: f32,
     retirement_contribution_percent: f32,
-    hsa_contribution_annual: u32,
+    hsa_contribution_annual: f32,
     social_security_age: u32,
-    social_security_amount_early: u32,
-    social_security_amount_full: u32,
-    social_security_amount_delayed: u32,
+    social_security_amount_early: f32,
+    social_security_amount_full: f32,
+    social_security_amount_delayed: f32,
 }
     
 #[derive(Debug)]
-struct Portfolio {
-    balance: u32,
-    annual_return_percent: f32,
-}
-
-#[derive(Debug)]
 struct Expenses {
-    monthly: u32,
-    inflation: f32,
+    monthly: f32,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct TaxLevel {
-    income: u32,
+    income: f32,
     rate: f32,
 }
     
 #[derive(Debug)]
 pub struct TaxRates {
-    standard_deduction: u32,
+    standard_deduction: f32,
     tax_levels: Vec<TaxLevel>,
 }
 
@@ -86,12 +82,32 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
         return Err("portfolio block missing".to_string());
     }
 
-    let balance = parse_u32(block, "balance")?;
-    let annual_return_percent = parse_f32(block, "annual_return_percent")?;
+    let balance = parse_f32(block, "balance")?;
+    
+    let us_equity_allocation = parse_f32(block, "us_equity_allocation")?;
+    let international_equity_allocation = parse_f32(block, "international_equity_allocation")?;
+    let bond_allocation = parse_f32(block, "bond_allocation")?;
+    
+    let us_equity_expected_returns = parse_f32(block, "us_equity_expected_returns")?;
+    let us_equity_standard_deviation = parse_f32(block, "us_equity_standard_deviation")?;
+    let international_equity_expected_returns = parse_f32(block, "international_equity_expected_returns")?;
+    let international_equity_standard_deviation = parse_f32(block, "international_equity_standard_deviation")?;
+    let bonds_expected_returns = parse_f32(block, "bonds_expected_returns")?;
+    let bonds_standard_deviation = parse_f32(block, "bonds_standard_deviation")?;
+    let expected_inflation = parse_f32(block, "expected_inflation")?;
 
     let portfolio = Portfolio {
         balance,
-        annual_return_percent,
+        us_equity_allocation,
+        international_equity_allocation,
+        bond_allocation,
+        us_equity_expected_returns,
+        us_equity_standard_deviation,
+        international_equity_expected_returns,
+        international_equity_standard_deviation,
+        bonds_expected_returns,
+        bonds_standard_deviation,
+        expected_inflation,
     };
     
     Ok(portfolio)
@@ -103,12 +119,10 @@ fn parse_expenses(input_yaml: &yaml_rust::Yaml) -> Result<Expenses, String> {
         return Err("expenses block missing".to_string());
     }
 
-    let monthly = parse_u32(block, "monthly")?;
-    let inflation = parse_f32(block, "inflation")?;
+    let monthly = parse_f32(block, "monthly")?;
 
     let expenses = Expenses {
         monthly,
-        inflation,
     };
     
     Ok(expenses)
@@ -119,14 +133,14 @@ fn parse_retiree(input_yaml: &yaml_rust::Yaml) -> Result<Retiree, String> {
     let life_expectency = parse_u32(input_yaml, "life_expectency")?;
     let retirement_age = parse_u32(input_yaml, "retirement_age")?;
 
-    let salary_annual = parse_u32(input_yaml, "wage_annual_salary")?;
-    let take_home_pay_annual = parse_u32(input_yaml, "wage_annual_take_home_pay")?;
+    let salary_annual = parse_f32(input_yaml, "wage_annual_salary")?;
+    let take_home_pay_annual = parse_f32(input_yaml, "wage_annual_take_home_pay")?;
     let retirement_contribution_percent = parse_f32(input_yaml, "retirement_contribution_percent")?;
-    let hsa_contribution_annual = parse_u32(input_yaml, "hsa_contribution_annual")?;
+    let hsa_contribution_annual = parse_f32(input_yaml, "hsa_contribution_annual")?;
     let social_security_age = parse_u32(input_yaml, "social_security_age")?;
-    let social_security_amount_early = parse_u32(input_yaml, "social_security_amount_early")?;
-    let social_security_amount_full = parse_u32(input_yaml, "social_security_amount_full")?;
-    let social_security_amount_delayed = parse_u32(input_yaml, "social_security_amount_delayed")?;
+    let social_security_amount_early = parse_f32(input_yaml, "social_security_amount_early")?;
+    let social_security_amount_full = parse_f32(input_yaml, "social_security_amount_full")?;
+    let social_security_amount_delayed = parse_f32(input_yaml, "social_security_amount_delayed")?;
 
     let date_of_birth = parse_string(input_yaml, "date_of_birth")?;
     let date_of_birth = NaiveDate::parse_from_str(&date_of_birth, "%m/%d/%Y").map_err(|_| "Invalid date")?;
@@ -169,7 +183,7 @@ fn parse_retirees(input_yaml: &yaml_rust::Yaml) -> Result<Vec<Retiree>, String> 
 }
 
 fn parse_tax_rate(input_yaml: &yaml_rust::Yaml) -> Result<TaxLevel, String> {
-    let income = parse_u32(input_yaml, "income")?;
+    let income = parse_f32(input_yaml, "income")?;
     let rate = parse_f32(input_yaml, "rate")?;
 
     let tax_rate = TaxLevel {
@@ -187,7 +201,7 @@ fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
         return Err("tax_rates block missing".to_string());
     }
 
-    let standard_deduction = parse_u32(block, "standard_deduction")?;
+    let standard_deduction = parse_f32(block, "standard_deduction")?;
     println!("standard_deduction {:?}", standard_deduction);
 
     let block = &block["levels"];
@@ -195,7 +209,7 @@ fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
         return Err("levels block missing".to_string());
     }
 
-    tax_levels.push( TaxLevel {income: 0, rate: 0.0});
+    tax_levels.push( TaxLevel {income: 0.0, rate: 0.0});
     let mut vec = block.as_vec().ok_or("no tax rates found")?;
     for element in vec {
         let tax_rate = parse_tax_rate(element);
@@ -208,10 +222,10 @@ fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
     //for (i, tax_rate) in tax_rates.iter().enumerate() {
     for i in 1..tax_levels.len() {
         if i < tax_levels.len() - 1 {
-            tax_levels[i].income = tax_levels[i + 1].income - 1;
+            tax_levels[i].income = tax_levels[i + 1].income - 1.0;
         }
         else {
-            tax_levels[i].income = u32::MAX;
+            tax_levels[i].income = f32::MAX;
         }
     }
 
@@ -241,7 +255,7 @@ fn parse_input_file(fname: &str) -> Result<Input, String> {
     let expenses = parse_expenses(&doc)?;
     let retirees = parse_retirees(&doc)?;
     let mut tax_rates = parse_tax_rates(&doc)?;
-    tax_rates.tax_levels.sort_unstable_by_key(|e| e.income);
+    tax_rates.tax_levels.sort_unstable_by_key(|e| e.income as u32);
     
     let input = Input {
         retirees,
