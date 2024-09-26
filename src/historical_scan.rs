@@ -1,9 +1,12 @@
+use chrono::Datelike;
+
+use crate::{Input, simulate};
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 
 #[derive(Debug, Default)]
-struct HistoricalAnnualReturns {
+struct HistoricalReturnsOneYear {
     year: u32,
     inflation: f32,
 
@@ -17,8 +20,8 @@ struct HistoricalAnnualReturns {
 }
 
 struct HistoricalReturns {
-    annual_returns: Vec<HistoricalAnnualReturns>,
-    averages: HistoricalAnnualReturns,
+    annual_returns: Vec<HistoricalReturnsOneYear>,
+    averages: HistoricalReturnsOneYear,
 }
 
 fn str_to_u32(s: &str) -> Result<u32, String> {
@@ -56,8 +59,8 @@ fn calculate_average_optional(vals: &[Option<f32>]) -> f32 {
     if vals.len() > 0 { total / vals.len() as f32} else { 0.0 }
 }
 
-fn calculate_averages(returns: &[HistoricalAnnualReturns]) -> HistoricalAnnualReturns {
-    let mut totals = HistoricalAnnualReturns::default();
+fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturnsOneYear {
+    let mut totals = HistoricalReturnsOneYear::default();
     totals.international = Some(0.0);
     let mut international_count = 0.0;
     
@@ -75,7 +78,7 @@ fn calculate_averages(returns: &[HistoricalAnnualReturns]) -> HistoricalAnnualRe
         }
     };
 
-    let mut averages = HistoricalAnnualReturns::default();
+    let mut averages = HistoricalReturnsOneYear::default();
     let count = returns.len() as f32;
     if count > 0.0 {
         averages.inflation = totals.inflation / count;
@@ -93,7 +96,7 @@ fn calculate_averages(returns: &[HistoricalAnnualReturns]) -> HistoricalAnnualRe
 
 fn parse_returns() -> Result<HistoricalReturns, String> {
 
-    let mut annual_returns: Vec<HistoricalAnnualReturns> = Vec::new();
+    let mut annual_returns: Vec<HistoricalReturnsOneYear> = Vec::new();
 
     let fname = Path::new("returns.csv");
     let file = File::open(fname).map_err(|_| "Can't open returns.csv")?;
@@ -110,15 +113,18 @@ fn parse_returns() -> Result<HistoricalReturns, String> {
         }
 
         let year = str_to_u32(toks[0])?;
-        let inflation = str_to_f32(toks[8])?;
-        let sp500return = str_to_f32(toks[9])?;
-        let tbill3month = str_to_f32(toks[10])?;
-        let tbill10year = str_to_f32(toks[11])?;
-        let corpBonds = str_to_f32(toks[12])?;
-        let realEstate = str_to_f32(toks[13])?;
-        let international = str_to_f32_optional(toks[14]);
+        let inflation = str_to_f32(toks[8])? * 100.0;
+        let sp500return = str_to_f32(toks[9])? * 100.0;
+        let tbill3month = str_to_f32(toks[10])? * 100.0;
+        let tbill10year = str_to_f32(toks[11])? * 100.0;
+        let corpBonds = str_to_f32(toks[12])? * 100.0;
+        let realEstate = str_to_f32(toks[13])? * 100.0;
+        let mut international = str_to_f32_optional(toks[14]);
+        if let Some(v) = international {
+            international = Some(v * 100.0);
+        }
 
-        let returns = HistoricalAnnualReturns {
+        let returns = HistoricalReturnsOneYear {
             year,
             inflation,
             sp500return,
@@ -128,8 +134,6 @@ fn parse_returns() -> Result<HistoricalReturns, String> {
             realEstate,
             international,
         };
-
-        //println!("{:?}", returns);
 
         annual_returns.push(returns);
     }
@@ -141,12 +145,86 @@ fn parse_returns() -> Result<HistoricalReturns, String> {
     };
     Ok(historical_returns)
 }
-    
-pub fn run_historical_scan() {
-    let returns = parse_returns();
-    match parse_returns() {
-        Ok(v) => println!("Averages: {:?}", v.averages),
-        Err(e) => println!("{}", e),
+
+#[derive(Debug)]
+pub struct HistoricalScenario {
+    pub simulation_results: simulate::SimulationResults,
+    pub starting_year: u32,
+    pub ending_year: u32,
+}
+
+fn run_scenario(starting_index: usize, 
+                historical_returns: &HistoricalReturns,
+                input: &Input) -> Result<HistoricalScenario, String> {
+    let mut simulation = simulate::Simulation::new(input);
+    let mut index = starting_index;
+
+    'outer: loop {
+        for month in 0..12 {
+            let international = historical_returns.annual_returns[index].international.unwrap_or(
+                historical_returns.annual_returns[index].sp500return);
+            let is_finished = simulation.run_simulation_one_month(
+                historical_returns.annual_returns[index].sp500return,
+                international,
+                historical_returns.annual_returns[index].tbill10year)?;
+            if is_finished {
+                break 'outer;
+            }
+        }
+        index += 1;
+        if index >= historical_returns.annual_returns.len() {
+            index = 0;
+        }
+    }
+
+    Ok(HistoricalScenario {
+        simulation_results: simulation.simulation_results_,
+        starting_year: historical_returns.annual_returns[starting_index].year,
+        ending_year: historical_returns.annual_returns[index].year,
+    })
+}
+
+#[derive(Debug)]
+pub struct HistoricalScanResults {
+    pub scenario_results: Vec<HistoricalScenario>,
+    pub num_simulations: u32,
+    pub num_successful: u32,
+    pub min_balance: f32,
+    pub max_balance: f32,
+    pub indices_failed: Vec<usize>,
+}
+
+pub fn run_historical_scan(input: &Input) -> Result<HistoricalScanResults, String> {
+    let historical_returns = parse_returns()?;
+    println!("Averages: {:?}", historical_returns.averages);
+
+    let mut results = HistoricalScanResults {
+        scenario_results: Vec::new(),
+        num_simulations: 0,
+        num_successful: 0,
+        min_balance: f32::MAX,
+        max_balance: 0.0,
+        indices_failed: Vec::new(),
     };
     
+    for index in 0..historical_returns.annual_returns.len() {
+        let historical_scenario = run_scenario(
+            index,
+            &historical_returns,
+            input)?;
+        results.num_simulations += 1;
+        let last_index = historical_scenario.simulation_results.monthly_snapshot.len() - 1;
+        let last_balance = historical_scenario.simulation_results.monthly_snapshot[last_index].balance;
+        if last_balance > 0.0 {
+            results.num_successful += 1;
+            results.min_balance = f32::min(results.min_balance, last_balance);
+            results.max_balance = f32::max(results.max_balance, last_balance);
+        }
+        else {
+            results.indices_failed.push(index);
+        }
+        results.scenario_results.push(historical_scenario);
+    }
+
+    Ok(results)
 }

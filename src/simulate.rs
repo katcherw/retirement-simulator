@@ -13,20 +13,23 @@ pub struct MonthlySnapshot {
     pub tax_rate: f32,
     pub taxes: f32,
     pub withdrawal_rate: f32,
+    pub annualized_return: f32,
 }
     
 #[derive(Debug)]
 pub struct RetireeInfo {
     pub name: String,
     pub social_security_date: NaiveDate,
+    pub date_of_birth: NaiveDate,
     social_security_income: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SimulationResults {
     pub retirement_date: NaiveDate,
     pub retirees: Vec<RetireeInfo>,
     pub monthly_snapshot: Vec<MonthlySnapshot>,
+    pub average_return: f32,
 }
 
 fn is_everyone_dead(current_date: &NaiveDate, input: &Input) -> bool {
@@ -89,53 +92,84 @@ fn get_social_security_monthly_income(
     }
 }
 
-pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
-    println!("starting simulation");
+pub struct Simulation<'a> {
+    pub simulation_results_: SimulationResults,
+   
+    input_: &'a Input,
+    retirement_date_: NaiveDate,
+    current_date_: NaiveDate,
+    portfolio_: Portfolio,
+    expenses_: f32,
+    tax_rates_: Vec<TaxLevel>,
+    sum_of_returns_: f32,
+}
+    
+impl<'a> Simulation<'a> {
+    pub fn new(input: &'a Input) -> Self {
+        let retirement_date = add_years(&input.retirees[0].date_of_birth, input.retirees[0].retirement_age);
+        let current_date: NaiveDate = chrono::Utc::now().naive_utc().date();
 
-    let retirement_date = add_years(&input.retirees[0].date_of_birth, input.retirees[0].retirement_age);
-    let mut simulation_results = SimulationResults {
-        retirement_date,
-        retirees: Vec::new(),
-        monthly_snapshot: Vec::new(),
-    };
-
-    let mut current_date: NaiveDate = chrono::Utc::now().naive_utc().date();
-    println!("now = {:?}", current_date);
-
-    for retiree in input.retirees.iter() {
-        let retiree_result = RetireeInfo {
-            name: retiree.name.to_string(),
-            social_security_date: add_years(&retiree.date_of_birth, retiree.social_security_age),
-            social_security_income: get_social_security_monthly_income(
-                retiree.social_security_age,
-                retiree.social_security_amount_early,
-                retiree.social_security_amount_full,
-                retiree.social_security_amount_delayed),
+        let mut simulation_results = SimulationResults {
+            retirement_date,
+            retirees: Vec::new(),
+            monthly_snapshot: Vec::new(),
+            average_return: 0.0,
         };
-        simulation_results.retirees.push(retiree_result);
-    }
-            
-    let years_diff = current_date.years_since(input.retirees[0].date_of_birth).ok_or("Invalid date")?;
-    println!("years_diff = {}", years_diff);
-
-    let mut portfolio = input.portfolio.clone();
-    let mut expenses = input.expenses.monthly;
-    let mut tax_rates = input.tax_rates.tax_levels.to_vec();
-
-    while !is_everyone_dead(&current_date, &input) {
-        // pre-retirement contributions
+        
         for retiree in input.retirees.iter() {
-            if current_date < retirement_date {
+            let retiree_result = RetireeInfo {
+                name: retiree.name.to_string(),
+                social_security_date: add_years(&retiree.date_of_birth, retiree.social_security_age),
+                date_of_birth: retiree.date_of_birth.clone(),
+                social_security_income: get_social_security_monthly_income(
+                    retiree.social_security_age,
+                    retiree.social_security_amount_early,
+                    retiree.social_security_amount_full,
+                    retiree.social_security_amount_delayed),
+            };
+            simulation_results.retirees.push(retiree_result);
+        }
+
+        let portfolio = input.portfolio.clone();
+        let expenses = input.expenses.monthly;
+        let tax_rates = input.tax_rates.tax_levels.to_vec();
+
+        Self {
+            simulation_results_: simulation_results,
+            input_: input,
+            retirement_date_: retirement_date,
+            current_date_: current_date,
+            portfolio_: portfolio,
+            expenses_: expenses,
+            tax_rates_: tax_rates,
+            sum_of_returns_: 0.0,
+        }
+    }
+
+    // returns true if simulation finished
+    pub fn run_simulation_one_month(
+        &mut self,
+        us_equity_expected_returns: f32,
+        international_equity_expected_returns: f32,
+        bonds_expected_returns: f32) -> Result<bool, String> {
+        
+        if is_everyone_dead(&self.current_date_, &self.input_) {
+            return Ok(true);
+        }
+        
+        // pre-retirement contributions
+        for retiree in self.input_.retirees.iter() {
+            if self.current_date_ < self.retirement_date_ {
                 let contribution = retiree.salary_annual * retiree.retirement_contribution_percent / 100.0;
-                portfolio.deposit(contribution / 12.0);
+                self.portfolio_.deposit(contribution / 12.0);
             }
         }
 
         // social security: before or after retirement
         let mut income = 0.0;
-        for (i, retiree) in input.retirees.iter().enumerate() {
-            if current_date > simulation_results.retirees[i].social_security_date {
-                income += simulation_results.retirees[i].social_security_income;
+        for (i, _retiree) in self.input_.retirees.iter().enumerate() {
+            if self.current_date_ > self.simulation_results_.retirees[i].social_security_date {
+                income += self.simulation_results_.retirees[i].social_security_income;
             }
         }
 
@@ -144,9 +178,9 @@ pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
         
         // required withdrawals, only after retirement
         let mut withdrawals = 0.0;
-        if current_date >= retirement_date {
-            if income < expenses {
-                withdrawals = expenses - income;
+        if self.current_date_ >= self.retirement_date_ {
+            if income < self.expenses_ {
+                withdrawals = self.expenses_ - income;
             }
         }
 
@@ -155,58 +189,83 @@ pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
         let mut tax_rate = 0.0;
         (taxes, tax_rate) = get_taxes(
             withdrawals + taxable_income,
-            input.tax_rates.standard_deduction,
-            &tax_rates);
+            self.input_.tax_rates.standard_deduction,
+            &self.tax_rates_);
 
         // we need to withdraw more cash to cover taxes. But these withdrawals
         // will cost more taxes, causing more withdrawals, and more taxes and so
         // on. This can be calculated as an infinite power series.
         let tax_on_tax = taxes / (1.0 - tax_rate / 100.0);
-        println!("taxes = {} tax_rate = {} tax_on_tax = {}", taxes, tax_rate, tax_on_tax);
         taxes = tax_on_tax;
         
         let mut withdrawal_rate = 0.0;
-        if portfolio.balance > 0.0 {
-            withdrawal_rate = (withdrawals + taxes) * 12.0 / portfolio.balance;
+        if self.portfolio_.balance > 0.0 {
+            withdrawal_rate = (withdrawals + taxes) * 12.0 / self.portfolio_.balance;
         }
             
-        if income > expenses {
-            portfolio.deposit(income - expenses);
+        if income > self.expenses_ {
+            self.portfolio_.deposit(income - self.expenses_);
         }
-        if portfolio.balance > taxes {
-            portfolio.withdraw(taxes);
-        }
-        else {
-            portfolio.balance = 0.0
-        }
-        if portfolio.balance > withdrawals {
-            portfolio.withdraw(withdrawals);
+        if self.portfolio_.balance > taxes {
+            self.portfolio_.withdraw(taxes);
         }
         else {
-            portfolio.balance = 0.0
+            self.portfolio_.balance = 0.0
+        }
+        if self.portfolio_.balance > withdrawals {
+            self.portfolio_.withdraw(withdrawals);
+        }
+        else {
+            self.portfolio_.balance = 0.0
         }
 
+        let annualized_return = self.portfolio_.grow(
+            us_equity_expected_returns,
+            international_equity_expected_returns,
+            bonds_expected_returns);
+        self.sum_of_returns_ += annualized_return;
+        self.simulation_results_.average_return = self.sum_of_returns_ / (self.simulation_results_.monthly_snapshot.len() as f32 + 1.0); 
+
         let monthly_balance = MonthlySnapshot {
-            date: current_date,
-            balance: portfolio.balance,
-            expenses, 
+            date: self.current_date_,
+            balance: self.portfolio_.balance,
+            expenses: self.expenses_, 
             income,
             taxes,
             tax_rate,
             withdrawal_rate,
+            annualized_return,
         };
 
-        simulation_results.monthly_snapshot.push(monthly_balance);
+        self.simulation_results_.monthly_snapshot.push(monthly_balance);
 
-        portfolio.grow();
 
-        current_date = match current_date.checked_add_months(chrono::Months::new(1)) {
+        self.current_date_ = match self.current_date_.checked_add_months(chrono::Months::new(1)) {
             Some(v) => v,
             None => return Err("Can't increment current date".to_string()),
         };
+
+        Ok(self.portfolio_.balance == 0.0)
     }
+}        
     
-    Ok(simulation_results)
+pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
+    println!("starting simulation");
+
+    let mut simulation = Simulation::new(input);
+
+    loop {
+        let is_finished = simulation.run_simulation_one_month(
+            input.portfolio.us_equity_expected_returns,
+            input.portfolio.international_equity_expected_returns,
+            input.portfolio.bonds_expected_returns)?;
+
+        if is_finished {
+            break;
+        }
+    }
+
+    Ok(simulation.simulation_results_)
 }
     
 #[cfg(test)]

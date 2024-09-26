@@ -268,6 +268,26 @@ fn parse_input_file(fname: &str) -> Result<Input, String> {
         
 }
 
+fn print_simulation_results(simulation_results: &simulate::SimulationResults) {
+    let mut retire_printed = false;
+
+    for (i, monthly_snapshot) in simulation_results.monthly_snapshot.iter().enumerate() {
+        if (i % 12) == 0 {
+            let age = utils::get_age(&simulation_results.retirees[0].date_of_birth, &monthly_snapshot.date);
+            print!("{} {} {} {} {} {} {} {} {} {} {}", i, i / 12, monthly_snapshot.date, age,
+                   monthly_snapshot.balance, monthly_snapshot.expenses, monthly_snapshot.income,
+                   monthly_snapshot.taxes, monthly_snapshot.tax_rate, monthly_snapshot.withdrawal_rate,
+                   monthly_snapshot.annualized_return);
+            if !retire_printed && (monthly_snapshot.date >= simulation_results.retirement_date) {
+                print!(" Retired!");
+                retire_printed = true;
+            }
+            println!();
+        }
+    }
+    println!("Average return: {}%", simulation_results.average_return);
+}
+    
 fn main() {
     println!("Retirement Simulator!!!");
     println!("Version {}", env!("CARGO_PKG_VERSION"));
@@ -292,18 +312,31 @@ fn main() {
         return;
     }
     let simulation_results = simulation_results.unwrap();
-    let mut retire_printed = false;
+    print_simulation_results(&simulation_results);
 
-    for (i, monthly_snapshot) in simulation_results.monthly_snapshot.iter().enumerate() {
-        if (i % 12) == 0 {
-            print!("{} {} {} {} {} {} {} {} {}", i, i / 12, monthly_snapshot.date, monthly_snapshot.balance, monthly_snapshot.expenses, monthly_snapshot.income, monthly_snapshot.taxes, monthly_snapshot.tax_rate, monthly_snapshot.withdrawal_rate);
-            if !retire_printed && (monthly_snapshot.date >= simulation_results.retirement_date) {
-                print!(" Retired!");
-                retire_printed = true;
-            }
-            println!();
-        }
+    let historical_results = run_historical_scan(&input); 
+    if historical_results.is_err() {
+        println!("Error running simulation");
+        return;
     }
+    let historical_results = historical_results.unwrap();
+        
+    println!();
+    println!("Historical results:");
+    println!("Successful runs: {} of {} ({}%)", historical_results.num_successful,
+             historical_results.num_simulations,
+             (historical_results.num_successful as f32/historical_results.num_simulations as f32) * 100.0);
+    println!("Lowest ending balance: ${}", historical_results.min_balance);
+    println!("Highest ending balance: ${}", historical_results.max_balance);
+    println!("Failing indices: {:?}", historical_results.indices_failed);
 
-   run_historical_scan(); 
+    for index in historical_results.indices_failed {
+        println!();
+        println!("Failing result for years {} to {}",
+                 historical_results.scenario_results[index].starting_year,
+                 historical_results.scenario_results[index].ending_year);
+         
+        print_simulation_results(&historical_results.scenario_results[index].simulation_results);
+    }
+    
 }
