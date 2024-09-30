@@ -5,6 +5,7 @@ use chrono::NaiveDate;
 use std::env;
 use std::fs;
 use std::process;
+use num_format::{Locale, ToFormattedString};
 
 use crate::historical_scan::run_historical_scan;
 use crate::portfolio::Portfolio;
@@ -268,24 +269,80 @@ fn parse_input_file(fname: &str) -> Result<Input, String> {
         
 }
 
+fn format_table(table: Vec<Vec<String>>) -> String {
+    if table.is_empty() {
+        return "".to_string();
+    }
+    
+    // find max len of each column
+    let mut col_size: Vec<usize> = vec![0; table[0].len()];
+    for row in table.iter() {
+        for (i, cell) in row.iter().enumerate() {
+            if cell.len() > col_size[i] {
+                col_size[i] = cell.len();
+            }
+        }
+    }
+
+    // format table
+    let mut str = String::new();
+    for row in table.iter() {
+        for (i, cell) in row.iter().enumerate() {
+            str.push_str(&format!("{:>width$} ", cell, width = col_size[i]));
+        }
+        str.push_str("\n");
+    } 
+
+    str
+}
+
+fn num_with_commas(num: u64) -> String
+{
+    num.to_formatted_string(&Locale::en)
+}
+
 fn print_simulation_results(simulation_results: &simulate::SimulationResults) {
     let mut retire_printed = false;
 
+    let mut table: Vec<Vec<String>> = Vec::new();
+
+    let heading = vec!["".to_string(), "Year".to_string(), "Age".to_string(),
+                       "Balance".to_string(), "Expenses".to_string(),
+                       "Income".to_string(), "Tax".to_string(),
+                       "Rate".to_string(), "Draw".to_string(),
+                       "Yield".to_string(), "".to_string()];
+                       table.push(heading);
+    
     for (i, monthly_snapshot) in simulation_results.monthly_snapshot.iter().enumerate() {
         if (i % 12) == 0 {
+            let mut row: Vec<String> = Vec::new();
+            
             let age = utils::get_age(&simulation_results.retirees[0].date_of_birth, &monthly_snapshot.date);
-            print!("{} {} {} {} {} {} {} {} {} {} {}", i, i / 12, monthly_snapshot.date, age,
-                   monthly_snapshot.balance, monthly_snapshot.expenses, monthly_snapshot.income,
-                   monthly_snapshot.taxes, monthly_snapshot.tax_rate, monthly_snapshot.withdrawal_rate,
-                   monthly_snapshot.annualized_return);
+            row.push((i / 12).to_string());
+            row.push(monthly_snapshot.date.format("%Y").to_string());
+            row.push(age.to_string());
+            row.push(num_with_commas(monthly_snapshot.balance as u64));
+            row.push(format!("{:.0}", monthly_snapshot.expenses));
+            row.push(format!("{:.0}", monthly_snapshot.income));
+            row.push(format!("{:.0}", monthly_snapshot.taxes));
+            row.push(format!("{:.0}%", monthly_snapshot.tax_rate));
+            row.push(format!("{:.2}%", monthly_snapshot.withdrawal_rate * 100.0));
+            row.push(format!("{:.2}%", monthly_snapshot.annualized_return));
             if !retire_printed && (monthly_snapshot.date >= simulation_results.retirement_date) {
-                print!(" Retired!");
+                row.push("Retired!".to_string());
                 retire_printed = true;
             }
-            println!();
+            else {
+                row.push("".to_string());
+            }
+
+            table.push(row);
         }
     }
-    println!("Average return: {}%", simulation_results.average_return);
+
+    println!("{}", format_table(table));
+    
+    println!("Average return: {:.2}%", simulation_results.average_return);
 }
     
 fn main() {
@@ -323,20 +380,31 @@ fn main() {
         
     println!();
     println!("Historical results:");
-    println!("Successful runs: {} of {} ({}%)", historical_results.num_successful,
+    println!("Successful runs: {} of {} ({:.1}%)", historical_results.num_successful,
              historical_results.num_simulations,
              (historical_results.num_successful as f32/historical_results.num_simulations as f32) * 100.0);
-    println!("Lowest ending balance: ${}", historical_results.min_balance);
-    println!("Highest ending balance: ${}", historical_results.max_balance);
+    println!("Lowest ending balance: ${}", num_with_commas(historical_results.min_balance as u64));
+    println!("Highest ending balance: ${}", num_with_commas(historical_results.max_balance as u64));
     println!("Failing indices: {:?}", historical_results.indices_failed);
 
-    for index in historical_results.indices_failed {
+    if historical_results.indices_failed.is_empty() {
+        println!("All scenarios successful");
+    }
+    else {
+        println!("Failed scenarios (sorted by worst to best):");
+        for index in historical_results.indices_failed.iter() {
+            println!("    years {} to {}",
+                    historical_results.scenario_results[*index].starting_year,
+                    historical_results.scenario_results[*index].ending_year);
+        }
+
+        let worst_index = historical_results.indices_failed[0];
         println!();
-        println!("Failing result for years {} to {}",
-                 historical_results.scenario_results[index].starting_year,
-                 historical_results.scenario_results[index].ending_year);
-         
-        print_simulation_results(&historical_results.scenario_results[index].simulation_results);
+        println!("Worst result was years {} to {}",
+                historical_results.scenario_results[worst_index].starting_year,
+                historical_results.scenario_results[worst_index].ending_year);
+
+        print_simulation_results(&historical_results.scenario_results[worst_index].simulation_results);
     }
     
 }

@@ -4,6 +4,7 @@ use crate::{Input, simulate};
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
+use core::cmp::Ordering;
 
 #[derive(Debug, Default)]
 struct HistoricalReturnsOneYear {
@@ -184,6 +185,12 @@ fn run_scenario(starting_index: usize,
     })
 }
 
+struct FailedInfo {
+    index: usize,
+    num_months: usize,
+    ending_balance: f32,
+}
+    
 #[derive(Debug)]
 pub struct HistoricalScanResults {
     pub scenario_results: Vec<HistoricalScenario>,
@@ -206,6 +213,8 @@ pub fn run_historical_scan(input: &Input) -> Result<HistoricalScanResults, Strin
         max_balance: 0.0,
         indices_failed: Vec::new(),
     };
+
+    let mut sorted_results: Vec<FailedInfo> = Vec::new();
     
     for index in 0..historical_returns.annual_returns.len() {
         let historical_scenario = run_scenario(
@@ -221,9 +230,22 @@ pub fn run_historical_scan(input: &Input) -> Result<HistoricalScanResults, Strin
             results.max_balance = f32::max(results.max_balance, last_balance);
         }
         else {
-            results.indices_failed.push(index);
+            sorted_results.push(FailedInfo {
+                index,
+                num_months: historical_scenario.simulation_results.monthly_snapshot.len(),
+                ending_balance: last_balance,
+            });
         }
         results.scenario_results.push(historical_scenario);
+    }
+
+    sorted_results.sort_by(|a, b| {
+        a.num_months.cmp(&b.num_months)
+            .then_with(|| a.ending_balance.partial_cmp(&b.ending_balance).unwrap())
+    });
+
+    for v in sorted_results {
+        results.indices_failed.push(v.index);
     }
 
     Ok(results)
