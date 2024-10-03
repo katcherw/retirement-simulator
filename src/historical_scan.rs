@@ -199,6 +199,7 @@ pub struct HistoricalScanResults {
     pub min_balance: f32,
     pub max_balance: f32,
     pub indices_failed: Vec<usize>,
+    pub sorted_indices: Vec<usize>,
 }
 
 pub fn run_historical_scan(input: &Input) -> Result<HistoricalScanResults, String> {
@@ -212,6 +213,7 @@ pub fn run_historical_scan(input: &Input) -> Result<HistoricalScanResults, Strin
         min_balance: f32::MAX,
         max_balance: 0.0,
         indices_failed: Vec::new(),
+        sorted_indices: Vec::new(),
     };
 
     let mut sorted_results: Vec<FailedInfo> = Vec::new();
@@ -224,17 +226,15 @@ pub fn run_historical_scan(input: &Input) -> Result<HistoricalScanResults, Strin
         results.num_simulations += 1;
         let last_index = historical_scenario.simulation_results.monthly_snapshot.len() - 1;
         let last_balance = historical_scenario.simulation_results.monthly_snapshot[last_index].balance;
+        results.min_balance = f32::min(results.min_balance, last_balance);
+        results.max_balance = f32::max(results.max_balance, last_balance);
+        sorted_results.push(FailedInfo {
+            index,
+            num_months: historical_scenario.simulation_results.monthly_snapshot.len(),
+            ending_balance: last_balance,
+        });
         if last_balance > 0.0 {
             results.num_successful += 1;
-            results.min_balance = f32::min(results.min_balance, last_balance);
-            results.max_balance = f32::max(results.max_balance, last_balance);
-        }
-        else {
-            sorted_results.push(FailedInfo {
-                index,
-                num_months: historical_scenario.simulation_results.monthly_snapshot.len(),
-                ending_balance: last_balance,
-            });
         }
         results.scenario_results.push(historical_scenario);
     }
@@ -245,7 +245,7 @@ pub fn run_historical_scan(input: &Input) -> Result<HistoricalScanResults, Strin
     });
 
     for v in sorted_results {
-        results.indices_failed.push(v.index);
+        results.sorted_indices.push(v.index);
     }
 
     Ok(results)

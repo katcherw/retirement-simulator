@@ -385,26 +385,29 @@ fn main() {
              (historical_results.num_successful as f32/historical_results.num_simulations as f32) * 100.0);
     println!("Lowest ending balance: ${}", num_with_commas(historical_results.min_balance as u64));
     println!("Highest ending balance: ${}", num_with_commas(historical_results.max_balance as u64));
-    println!("Failing indices: {:?}", historical_results.indices_failed);
-
-    if historical_results.indices_failed.is_empty() {
-        println!("All scenarios successful");
+    if !historical_results.indices_failed.is_empty() {
+        println!("Failing indices: {:?}", historical_results.indices_failed);
     }
     else {
-        println!("Failed scenarios (sorted by worst to best):");
-        for index in historical_results.indices_failed.iter() {
-            println!("    years {} to {}",
-                    historical_results.scenario_results[*index].starting_year,
-                    historical_results.scenario_results[*index].ending_year);
+        if historical_results.indices_failed.is_empty() {
+            println!("All scenarios successful");
         }
-
-        let worst_index = historical_results.indices_failed[0];
-        println!();
-        println!("Worst result was years {} to {}",
-                historical_results.scenario_results[worst_index].starting_year,
-                historical_results.scenario_results[worst_index].ending_year);
-
-        print_simulation_results(&historical_results.scenario_results[worst_index].simulation_results);
     }
+
+    println!("Scenarios (sorted by worst to best):");
+    for index in historical_results.sorted_indices.iter() {
+        println!("    years {} to {}, ending balance ${:.0}",
+                historical_results.scenario_results[*index].starting_year,
+                historical_results.scenario_results[*index].ending_year,
+                historical_results.scenario_results[*index].simulation_results.monthly_snapshot.last().unwrap().balance);
+    }
+
+    let worst_index = historical_results.sorted_indices[0];
+    println!();
+    println!("Worst result was years {} to {}",
+            historical_results.scenario_results[worst_index].starting_year,
+            historical_results.scenario_results[worst_index].ending_year);
+
+    print_simulation_results(&historical_results.scenario_results[worst_index].simulation_results);
     
 }
