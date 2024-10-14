@@ -1,10 +1,9 @@
 use chrono::Datelike;
 
-use crate::{Input, simulate};
+use crate::{Input, scan, simulate};
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
-use core::cmp::Ordering;
 
 #[derive(Debug, Default)]
 struct HistoricalReturnsOneYear {
@@ -147,106 +146,64 @@ fn parse_returns() -> Result<HistoricalReturns, String> {
     Ok(historical_returns)
 }
 
-#[derive(Debug)]
-pub struct HistoricalScenario {
-    pub simulation_results: simulate::SimulationResults,
-    pub starting_year: u32,
-    pub ending_year: u32,
+pub struct HistoricalScan {
+    pub historical_returns: HistoricalReturns,
 }
 
-fn run_scenario(starting_index: usize, 
-                historical_returns: &HistoricalReturns,
-                input: &Input) -> Result<HistoricalScenario, String> {
-    let mut simulation = simulate::Simulation::new(input);
-    let mut index = starting_index;
+impl HistoricalScan {
+    pub fn new() -> Result<Self, String> {
+        let historical_returns = parse_returns()?;
+        println!("Averages: {:?}", historical_returns.averages);
+        Ok(HistoricalScan {historical_returns})
+    }
+    
+    fn run_scenario(&mut self,
+                    starting_index: usize, 
+                    input: &Input) -> Result<scan::Scenario, String> {
+        let mut simulation = simulate::Simulation::new(input);
+        let mut index = starting_index;
 
-    'outer: loop {
-        for month in 0..12 {
-            let international = historical_returns.annual_returns[index].international.unwrap_or(
-                historical_returns.annual_returns[index].sp500return);
-            let is_finished = simulation.run_simulation_one_month(
-                historical_returns.annual_returns[index].sp500return,
-                international,
-                historical_returns.annual_returns[index].tbill10year)?;
-            if is_finished {
-                break 'outer;
+        'outer: loop {
+            for month in 0..12 {
+                let international = self.historical_returns.annual_returns[index].international.unwrap_or(
+                    self.historical_returns.annual_returns[index].sp500return);
+                let is_finished = simulation.run_simulation_one_month(
+                    self.historical_returns.annual_returns[index].sp500return,
+                    international,
+                    self.historical_returns.annual_returns[index].tbill10year)?;
+                if is_finished {
+                    break 'outer;
+                }
+            }
+            index += 1;
+            if index >= self.historical_returns.annual_returns.len() {
+                index = 0;
             }
         }
-        index += 1;
-        if index >= historical_returns.annual_returns.len() {
-            index = 0;
+
+        Ok(scan::Scenario {
+            simulation_results: simulation.simulation_results_,
+            starting_year: self.historical_returns.annual_returns[starting_index].year,
+            ending_year: self.historical_returns.annual_returns[index].year,
+        })
+    }
+}
+
+impl scan::Scannable for HistoricalScan {
+    fn run_scan(&mut self, input: &Input) -> Result<scan::ScanResults, String> {
+        let mut results = scan::ScanResults::new();
+
+        for index in 0..self.historical_returns.annual_returns.len() {
+            let historical_scenario = self.run_scenario(
+                index,
+                input)?;
+            scan::add_scenario_to_results(&mut results, historical_scenario, index);
         }
+
+        results.sort_results();
+
+        Ok(results)
     }
-
-    Ok(HistoricalScenario {
-        simulation_results: simulation.simulation_results_,
-        starting_year: historical_returns.annual_returns[starting_index].year,
-        ending_year: historical_returns.annual_returns[index].year,
-    })
 }
 
-struct FailedInfo {
-    index: usize,
-    num_months: usize,
-    ending_balance: f32,
-}
     
-#[derive(Debug)]
-pub struct HistoricalScanResults {
-    pub scenario_results: Vec<HistoricalScenario>,
-    pub num_simulations: u32,
-    pub num_successful: u32,
-    pub min_balance: f32,
-    pub max_balance: f32,
-    pub indices_failed: Vec<usize>,
-    pub sorted_indices: Vec<usize>,
-}
-
-pub fn run_historical_scan(input: &Input) -> Result<HistoricalScanResults, String> {
-    let historical_returns = parse_returns()?;
-    println!("Averages: {:?}", historical_returns.averages);
-
-    let mut results = HistoricalScanResults {
-        scenario_results: Vec::new(),
-        num_simulations: 0,
-        num_successful: 0,
-        min_balance: f32::MAX,
-        max_balance: 0.0,
-        indices_failed: Vec::new(),
-        sorted_indices: Vec::new(),
-    };
-
-    let mut sorted_results: Vec<FailedInfo> = Vec::new();
-    
-    for index in 0..historical_returns.annual_returns.len() {
-        let historical_scenario = run_scenario(
-            index,
-            &historical_returns,
-            input)?;
-        results.num_simulations += 1;
-        let last_index = historical_scenario.simulation_results.monthly_snapshot.len() - 1;
-        let last_balance = historical_scenario.simulation_results.monthly_snapshot[last_index].balance;
-        results.min_balance = f32::min(results.min_balance, last_balance);
-        results.max_balance = f32::max(results.max_balance, last_balance);
-        sorted_results.push(FailedInfo {
-            index,
-            num_months: historical_scenario.simulation_results.monthly_snapshot.len(),
-            ending_balance: last_balance,
-        });
-        if last_balance > 0.0 {
-            results.num_successful += 1;
-        }
-        results.scenario_results.push(historical_scenario);
-    }
-
-    sorted_results.sort_by(|a, b| {
-        a.num_months.cmp(&b.num_months)
-            .then_with(|| a.ending_balance.partial_cmp(&b.ending_balance).unwrap())
-    });
-
-    for v in sorted_results {
-        results.sorted_indices.push(v.index);
-    }
-
-    Ok(results)
-}

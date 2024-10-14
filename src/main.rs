@@ -7,11 +7,15 @@ use std::fs;
 use std::process;
 use num_format::{Locale, ToFormattedString};
 
-use crate::historical_scan::run_historical_scan;
+use crate::historical_scan::HistoricalScan;
+use crate::monte_carlo::MonteCarloScan;
 use crate::portfolio::Portfolio;
+use crate::scan::Scannable;
 
 mod simulate;
+mod scan;
 mod historical_scan;
+mod monte_carlo;
 mod utils;
 mod portfolio;
 
@@ -345,6 +349,44 @@ fn print_simulation_results(simulation_results: &simulate::SimulationResults) {
     println!("Average return: {:.2}%", simulation_results.average_return);
 }
     
+fn run_scan<S: scan::Scannable>(input: &Input, scanner: &mut S) -> Result<scan::ScanResults, String> {
+    let results = scanner.run_scan(&input)?; 
+        
+    println!("Successful runs: {} of {} ({:.1}%)", results.num_successful,
+             results.num_simulations,
+             results.num_successful as f32/(results.num_simulations as f32) * 100.0);
+    println!("Lowest ending balance: ${}", num_with_commas(results.min_balance as u64));
+    println!("Highest ending balance: ${}", num_with_commas(results.max_balance as u64));
+
+    Ok(results)
+}
+
+fn print_historical_result_details(results: &scan::ScanResults) {
+    println!("Scenarios (sorted by worst to best):");
+    for index in results.sorted_indices.iter() {
+        println!("    years {} to {}, ending balance ${:.0}",
+                results.scenario_results[*index].starting_year,
+                results.scenario_results[*index].ending_year,
+                results.scenario_results[*index].simulation_results.monthly_snapshot.last().unwrap().balance);
+    }
+
+    let worst_index = results.sorted_indices[0];
+    println!();
+    println!("Worst result was years {} to {}",
+            results.scenario_results[worst_index].starting_year,
+            results.scenario_results[worst_index].ending_year);
+
+    print_simulation_results(&results.scenario_results[worst_index].simulation_results);
+
+    // println!();
+    // println!("Scenarios:");
+    // for (i, scenario) in results.scenario_results.iter().enumerate() {
+    //     println!("Scenario {i}");
+    //     print_simulation_results(&scenario.simulation_results);
+    // } 
+    
+}
+
 fn main() {
     println!("Retirement Simulator!!!");
     println!("Version {}", env!("CARGO_PKG_VERSION"));
@@ -371,43 +413,24 @@ fn main() {
     let simulation_results = simulation_results.unwrap();
     print_simulation_results(&simulation_results);
 
-    let historical_results = run_historical_scan(&input); 
-    if historical_results.is_err() {
-        println!("Error running simulation");
-        return;
-    }
-    let historical_results = historical_results.unwrap();
-        
     println!();
     println!("Historical results:");
-    println!("Successful runs: {} of {} ({:.1}%)", historical_results.num_successful,
-             historical_results.num_simulations,
-             (historical_results.num_successful as f32/historical_results.num_simulations as f32) * 100.0);
-    println!("Lowest ending balance: ${}", num_with_commas(historical_results.min_balance as u64));
-    println!("Highest ending balance: ${}", num_with_commas(historical_results.max_balance as u64));
-    if !historical_results.indices_failed.is_empty() {
-        println!("Failing indices: {:?}", historical_results.indices_failed);
-    }
-    else {
-        if historical_results.indices_failed.is_empty() {
-            println!("All scenarios successful");
-        }
-    }
-
-    println!("Scenarios (sorted by worst to best):");
-    for index in historical_results.sorted_indices.iter() {
-        println!("    years {} to {}, ending balance ${:.0}",
-                historical_results.scenario_results[*index].starting_year,
-                historical_results.scenario_results[*index].ending_year,
-                historical_results.scenario_results[*index].simulation_results.monthly_snapshot.last().unwrap().balance);
-    }
-
-    let worst_index = historical_results.sorted_indices[0];
-    println!();
-    println!("Worst result was years {} to {}",
-            historical_results.scenario_results[worst_index].starting_year,
-            historical_results.scenario_results[worst_index].ending_year);
-
-    print_simulation_results(&historical_results.scenario_results[worst_index].simulation_results);
+    let mut historical_scan = HistoricalScan::new().unwrap_or_else(|err| {
+        println!("Error parsing historical returns: {}", err);
+        process::exit(1);
+    });
+    let historical_results = run_scan(&input, &mut historical_scan).unwrap_or_else(|err| {
+        println!("Error running historical simulation: {}", err);
+        process::exit(1);
+    });
+    print_historical_result_details(&historical_results);
     
+    println!();
+    println!("Monte Carlo Simulation");
+    let mut monte_carlo_scan = MonteCarloScan::new();
+    let _ = run_scan(&input, &mut monte_carlo_scan).unwrap_or_else(|err| {
+        println!("Error running monte carlo simulation: {}", err);
+        process::exit(1);
+    });
+
 }
