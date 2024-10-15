@@ -1,3 +1,9 @@
+/**************************************************************************
+* retirement-simulator
+*
+* Parses config file and runs simulations.
+**************************************************************************/
+
 extern crate yaml_rust;
 extern crate chrono;
 use yaml_rust::{YamlLoader, YamlEmitter};
@@ -10,7 +16,6 @@ use num_format::{Locale, ToFormattedString};
 use crate::historical_scan::HistoricalScan;
 use crate::monte_carlo::MonteCarloScan;
 use crate::portfolio::Portfolio;
-use crate::scan::Scannable;
 
 mod simulate;
 mod scan;
@@ -19,6 +24,10 @@ mod monte_carlo;
 mod utils;
 mod portfolio;
 
+///////////////////////////////////////////////////////////////////////////
+// Parsing input
+///////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug)]
 struct Retiree {
     name: String,
@@ -26,9 +35,7 @@ struct Retiree {
     retirement_age: u32,
     life_expectency: u32,
     salary_annual: f32,
-    take_home_pay_annual: f32,
     retirement_contribution_percent: f32,
-    hsa_contribution_annual: f32,
     social_security_age: u32,
     social_security_amount_early: f32,
     social_security_amount_full: f32,
@@ -139,9 +146,7 @@ fn parse_retiree(input_yaml: &yaml_rust::Yaml) -> Result<Retiree, String> {
     let retirement_age = parse_u32(input_yaml, "retirement_age")?;
 
     let salary_annual = parse_f32(input_yaml, "wage_annual_salary")?;
-    let take_home_pay_annual = parse_f32(input_yaml, "wage_annual_take_home_pay")?;
     let retirement_contribution_percent = parse_f32(input_yaml, "retirement_contribution_percent")?;
-    let hsa_contribution_annual = parse_f32(input_yaml, "hsa_contribution_annual")?;
     let social_security_age = parse_u32(input_yaml, "social_security_age")?;
     let social_security_amount_early = parse_f32(input_yaml, "social_security_amount_early")?;
     let social_security_amount_full = parse_f32(input_yaml, "social_security_amount_full")?;
@@ -156,9 +161,7 @@ fn parse_retiree(input_yaml: &yaml_rust::Yaml) -> Result<Retiree, String> {
         life_expectency,
         retirement_age,
         salary_annual,
-        take_home_pay_annual,
         retirement_contribution_percent,
-        hsa_contribution_annual,
         social_security_age,
         social_security_amount_early,
         social_security_amount_full,
@@ -207,7 +210,6 @@ fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
     }
 
     let standard_deduction = parse_f32(block, "standard_deduction")?;
-    println!("standard_deduction {:?}", standard_deduction);
 
     let block = &block["levels"];
     if block.is_badvalue() {
@@ -215,7 +217,7 @@ fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
     }
 
     tax_levels.push( TaxLevel {income: 0.0, rate: 0.0});
-    let mut vec = block.as_vec().ok_or("no tax rates found")?;
+    let vec = block.as_vec().ok_or("no tax rates found")?;
     for element in vec {
         let tax_rate = parse_tax_rate(element);
         match tax_rate {
@@ -253,7 +255,7 @@ fn parse_input_file(fname: &str) -> Result<Input, String> {
     {
         let mut emitter = YamlEmitter::new(&mut out_str);
         emitter.dump(doc).unwrap(); // dump the YAML object to a String
-        println!("{out_str}");
+        // println!("{out_str}");
     }
 
     let portfolio = parse_portfolio(&doc)?;
@@ -272,6 +274,10 @@ fn parse_input_file(fname: &str) -> Result<Input, String> {
     Ok(input)
         
 }
+
+///////////////////////////////////////////////////////////////////////////
+// Output results
+///////////////////////////////////////////////////////////////////////////
 
 fn format_table(table: Vec<Vec<String>>) -> String {
     if table.is_empty() {
@@ -349,6 +355,10 @@ fn print_simulation_results(simulation_results: &simulate::SimulationResults) {
     println!("Average return: {:.2}%", simulation_results.average_return);
 }
     
+///////////////////////////////////////////////////////////////////////////
+// Running simulations
+///////////////////////////////////////////////////////////////////////////
+
 fn run_scan<S: scan::Scannable>(input: &Input, scanner: &mut S) -> Result<scan::ScanResults, String> {
     let results = scanner.run_scan(&input)?; 
         
@@ -362,6 +372,7 @@ fn run_scan<S: scan::Scannable>(input: &Input, scanner: &mut S) -> Result<scan::
 }
 
 fn print_historical_result_details(results: &scan::ScanResults) {
+    println!();
     println!("Scenarios (sorted by worst to best):");
     for index in results.sorted_indices.iter() {
         println!("    years {} to {}, ending balance ${:.0}",
@@ -375,16 +386,6 @@ fn print_historical_result_details(results: &scan::ScanResults) {
     println!("Worst result was years {} to {}",
             results.scenario_results[worst_index].starting_year,
             results.scenario_results[worst_index].ending_year);
-
-    print_simulation_results(&results.scenario_results[worst_index].simulation_results);
-
-    // println!();
-    // println!("Scenarios:");
-    // for (i, scenario) in results.scenario_results.iter().enumerate() {
-    //     println!("Scenario {i}");
-    //     print_simulation_results(&scenario.simulation_results);
-    // } 
-    
 }
 
 fn main() {
@@ -405,16 +406,23 @@ fn main() {
         Err(e) => {println!("{e}"); process::exit(1);}
     };
     
-    let simulation_results = simulate::run_simulation(&input);
-    if simulation_results.is_err() {
-        println!("Error running simulation");
-        return;
+    println!("-= Simulation using uniform returns =-");
+    println!();
+    let simulation_results = simulate::run_simulation(&input).unwrap_or_else(|err| {
+        println!("Error running simulation: {}", err);
+        process::exit(1);
+    });
+    if simulation_results.monthly_snapshot[simulation_results.monthly_snapshot.len() - 1].balance == 0.0 {
+        println!("Retirement failed");
     }
-    let simulation_results = simulation_results.unwrap();
+    else {
+        println!("Retirement succeeded!");
+    }
     print_simulation_results(&simulation_results);
 
     println!();
-    println!("Historical results:");
+    println!("-= Historical simulation =-");
+    println!();
     let mut historical_scan = HistoricalScan::new().unwrap_or_else(|err| {
         println!("Error parsing historical returns: {}", err);
         process::exit(1);
@@ -426,11 +434,11 @@ fn main() {
     print_historical_result_details(&historical_results);
     
     println!();
-    println!("Monte Carlo Simulation");
+    println!("-= Monte Carlo Simulation =-");
+    println!();
     let mut monte_carlo_scan = MonteCarloScan::new();
     let _ = run_scan(&input, &mut monte_carlo_scan).unwrap_or_else(|err| {
         println!("Error running monte carlo simulation: {}", err);
         process::exit(1);
     });
-
 }

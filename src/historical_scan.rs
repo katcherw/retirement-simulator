@@ -1,9 +1,17 @@
-use chrono::Datelike;
+/**************************************************************************
+* historical_scan.rs
+*
+* Simulate starting a retirement at every year since 1928.
+**************************************************************************/
 
 use crate::{Input, scan, simulate};
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
+
+///////////////////////////////////////////////////////////////////////////
+// Parse csv file with historical returns
+///////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, Default)]
 struct HistoricalReturnsOneYear {
@@ -14,12 +22,12 @@ struct HistoricalReturnsOneYear {
     sp500return: f32,
     tbill3month: f32,
     tbill10year: f32,
-    corpBonds: f32,
-    realEstate: f32,
+    corp_bonds: f32,
+    real_estate: f32,
     international: Option<f32>,
 }
 
-struct HistoricalReturns {
+pub struct HistoricalReturns {
     annual_returns: Vec<HistoricalReturnsOneYear>,
     averages: HistoricalReturnsOneYear,
 }
@@ -39,26 +47,6 @@ fn str_to_f32_optional(s: &str) -> Option<f32> {
     }
 }
 
-fn calculate_average(vals: &[f32]) -> f32 {
-    let mut total = 0f32;
-
-    for val in vals {
-        total += val;
-    }
-
-    if vals.len() > 0 { total / vals.len() as f32} else { 0.0 }
-}
-
-fn calculate_average_optional(vals: &[Option<f32>]) -> f32 {
-    let mut total = 0f32;
-
-    for val in vals {
-        total += val.unwrap_or(0.0);
-    }
-
-    if vals.len() > 0 { total / vals.len() as f32} else { 0.0 }
-}
-
 fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturnsOneYear {
     let mut totals = HistoricalReturnsOneYear::default();
     totals.international = Some(0.0);
@@ -69,8 +57,8 @@ fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturns
         totals.sp500return += ret.sp500return;
         totals.tbill3month += ret.tbill3month;
         totals.tbill10year += ret.tbill10year;
-        totals.corpBonds += ret.corpBonds;
-        totals.realEstate += ret.realEstate;
+        totals.corp_bonds += ret.corp_bonds;
+        totals.real_estate += ret.real_estate;
         if ret.international.is_some() {
             totals.international = Some(totals.international.unwrap() +
                 ret.international.unwrap());
@@ -85,8 +73,8 @@ fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturns
         averages.sp500return = totals.sp500return / count;
         averages.tbill3month = totals.tbill3month / count;
         averages.tbill10year = totals.tbill10year / count;
-        averages.corpBonds = totals.corpBonds / count;
-        averages.realEstate = totals.realEstate / count;
+        averages.corp_bonds = totals.corp_bonds / count;
+        averages.real_estate = totals.real_estate / count;
         averages.international = Some(if international_count > 0.0
             { totals.international.unwrap() / international_count } else { 0.0 });
     };
@@ -117,8 +105,8 @@ fn parse_returns() -> Result<HistoricalReturns, String> {
         let sp500return = str_to_f32(toks[9])? * 100.0;
         let tbill3month = str_to_f32(toks[10])? * 100.0;
         let tbill10year = str_to_f32(toks[11])? * 100.0;
-        let corpBonds = str_to_f32(toks[12])? * 100.0;
-        let realEstate = str_to_f32(toks[13])? * 100.0;
+        let corp_bonds = str_to_f32(toks[12])? * 100.0;
+        let real_estate = str_to_f32(toks[13])? * 100.0;
         let mut international = str_to_f32_optional(toks[14]);
         if let Some(v) = international {
             international = Some(v * 100.0);
@@ -130,8 +118,8 @@ fn parse_returns() -> Result<HistoricalReturns, String> {
             sp500return,
             tbill3month,
             tbill10year,
-            corpBonds,
-            realEstate,
+            corp_bonds,
+            real_estate,
             international,
         };
 
@@ -146,6 +134,10 @@ fn parse_returns() -> Result<HistoricalReturns, String> {
     Ok(historical_returns)
 }
 
+///////////////////////////////////////////////////////////////////////////
+// Run scan
+///////////////////////////////////////////////////////////////////////////
+
 pub struct HistoricalScan {
     pub historical_returns: HistoricalReturns,
 }
@@ -153,7 +145,7 @@ pub struct HistoricalScan {
 impl HistoricalScan {
     pub fn new() -> Result<Self, String> {
         let historical_returns = parse_returns()?;
-        println!("Averages: {:?}", historical_returns.averages);
+        // println!("Averages: {:?}", historical_returns.averages);
         Ok(HistoricalScan {historical_returns})
     }
     
@@ -164,7 +156,7 @@ impl HistoricalScan {
         let mut index = starting_index;
 
         'outer: loop {
-            for month in 0..12 {
+            for _month in 0..12 {
                 let international = self.historical_returns.annual_returns[index].international.unwrap_or(
                     self.historical_returns.annual_returns[index].sp500return);
                 let is_finished = simulation.run_simulation_one_month(

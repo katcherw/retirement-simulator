@@ -1,9 +1,17 @@
+/**************************************************************************
+* portfolio.rs
+*
+* Tracks the portfolio holdings and balance. Right now assume an asset
+* allocation and continuous rebalancing.
+**************************************************************************/
+
 use crate::utils::*;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Portfolio {
     pub balance: f32,
     
+    // all values are percentages (0-100.0)
     pub us_equity_allocation: f32,
     pub international_equity_allocation: f32,
     pub bond_allocation: f32,
@@ -29,7 +37,7 @@ impl Portfolio {
         }
     }
     
-    // returns annualized average return
+    // grows the balance and returns annualized average return
     pub fn grow(
         &mut self,
         us_equity_expected_returns: f32,

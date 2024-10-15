@@ -1,9 +1,16 @@
+/**************************************************************************
+* simulate.rs
+*
+* Performs the simulation of a retirement scenario
+**************************************************************************/
+
 use crate::{Input, TaxLevel};
 use chrono;
 use chrono::NaiveDate;
 use crate::utils::*;
 use crate::portfolio::Portfolio;
 
+// stores results of each month of the simulation
 #[derive(Debug)]
 pub struct MonthlySnapshot {
     pub date: NaiveDate,
@@ -16,6 +23,8 @@ pub struct MonthlySnapshot {
     pub annualized_return: f32,
 }
     
+// values collected for each retiree during simulation to make
+// reporting easier
 #[derive(Debug)]
 pub struct RetireeInfo {
     pub name: String,
@@ -62,6 +71,11 @@ fn get_taxes(mut monthly_income: f32, standard_deduction: f32, tax_rates: &Vec<T
     panic!("Tax rate too high!");
 }
     
+// this is an estimate. The IRS has a big table for retirement income based on
+// age and retirement date. This routine uses the values from the last row of
+// the table, for younger retirees. The user will enter their personal values
+// from the IRS web site and this routine will interpolate the rest. In the future
+// the whole table should be entered.
 fn get_social_security_monthly_income(
     retirement_age: u32,
     benefit_early: f32,
@@ -92,6 +106,7 @@ fn get_social_security_monthly_income(
     }
 }
 
+// represents a simulation run
 pub struct Simulation<'a> {
     pub simulation_results_: SimulationResults,
    
@@ -185,9 +200,7 @@ impl<'a> Simulation<'a> {
         }
 
         // tax on income and withdrawals. tax rate on ss will be higher, but ignore that for now
-        let mut taxes = 0.0;
-        let mut tax_rate = 0.0;
-        (taxes, tax_rate) = get_taxes(
+        let (mut taxes, tax_rate) = get_taxes(
             withdrawals + taxable_income,
             self.input_.tax_rates.standard_deduction,
             &self.tax_rates_);
@@ -250,8 +263,6 @@ impl<'a> Simulation<'a> {
 }        
     
 pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
-    println!("starting simulation");
-
     let mut simulation = Simulation::new(input);
 
     loop {

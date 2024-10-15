@@ -1,5 +1,14 @@
+/**************************************************************************
+* utils.rs
+*
+* Utilities useful application-wide
+**************************************************************************/
+
 use chrono::{NaiveDate, Duration};
 
+// given an annual interest rate, return the equivalent monthly rate. This
+// allows the inputs to be entered in the familiar annual yield, but the
+// simulation to be done by month.
 pub fn get_monthly_rate(annual_rate: f32) -> f32 {
     // growth rates are expressed as rates compunded annually, but we will
     // calculate on a monthly basis
