@@ -16,6 +16,9 @@ retirees:
        retirement_contribution_percent: 12.0    # percentage of salary going to retirement savings
        hsa_contribution_annual: 8300.0          # annual HSA contribution (currently not used)
        social_security_age: 67                  # When you expect to start taking social security
+       pension_age: 62                          # age when pension income begins
+       pension_monthly_income: 1000.0           # monthly income in today's dollars
+       other_monthly_retirement_income: 500.0   # retirement income from all other sources
 
        # The next values should come from the social security web site to
        # determine how much social security you will earn. Non-working
@@ -33,6 +36,9 @@ retirees:
        retirement_contribution_percent: 12.0    # percentage of salary going to retirement savings
        hsa_contribution_annual: 0.0             # annual HSA contribution (currently not used)
        social_security_age: 67                  # When you expect to start taking social security
+       pension_age: 0                           # age when pension income begins
+       pension_monthly_income: 0.0              # monthly income in today's dollars
+       other_monthly_retirement_income: 0.0     # retirement income from all other sources
 
        # The next values should come from the social security web site to
        # determine how much social security you will earn. Non-working

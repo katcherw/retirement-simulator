@@ -15,16 +15,6 @@ pub struct Allocation {
     pub bonds: f32,
 }
 
-impl Allocation {
-    pub fn new() -> Self {
-        Allocation {
-            us_equities: 0.0,
-            international: 0.0,
-            bonds: 0.0,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct Portfolio {
     pub balance: f32,
@@ -60,8 +50,8 @@ impl Portfolio {
         international_equity_expected_returns: f32,
         bonds_expected_returns: f32,
         use_post_retirement: bool) -> f32 {
-        let &allocation = if use_post_retirement {&self.pre_retirement_allocation}
-            else {&self.post_retirement_allocation};
+        let &allocation = if use_post_retirement {&self.post_retirement_allocation}
+            else {&self.pre_retirement_allocation};
         let mut us_equity = self.balance * allocation.us_equities / 100.0;
         let mut international_equity = self.balance * allocation.international / 100.0;
         let mut bonds = self.balance * allocation.bonds / 100.0;

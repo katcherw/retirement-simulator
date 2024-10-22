@@ -27,6 +27,7 @@ struct HistoricalReturnsOneYear {
     international: Option<f32>,
 }
 
+#[allow(dead_code)]
 pub struct HistoricalReturns {
     annual_returns: Vec<HistoricalReturnsOneYear>,
     averages: HistoricalReturnsOneYear,

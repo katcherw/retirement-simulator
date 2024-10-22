@@ -189,8 +189,25 @@ impl<'a> Simulation<'a> {
         }
 
         // social security is usually 85% taxable (ignore lower incomes)
-        let taxable_income = income * 0.85;
+        let mut taxable_income = income * 0.85;
         
+        // pension income, before or after retirement
+        for retiree in self.input_.retirees.iter() {
+            let pension_date = add_years(&retiree.date_of_birth, retiree.pension_age);
+            if self.current_date_ >= pension_date {
+                income += retiree.pension_monthly_income;
+                taxable_income += retiree.pension_monthly_income;
+            }
+        }
+
+        // other retirement income
+        for retiree in self.input_.retirees.iter() {
+            if self.current_date_ >= self.simulation_results_.retirement_date {
+                income += retiree.other_monthly_retirement_income;
+                taxable_income += retiree.other_monthly_retirement_income;
+            }
+        }
+
         // required withdrawals, only after retirement
         let mut withdrawals = 0.0;
         if self.current_date_ >= self.simulation_results_.retirement_date {

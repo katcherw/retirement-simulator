@@ -37,6 +37,9 @@ struct Retiree {
     salary_annual: f32,
     retirement_contribution_percent: f32,
     social_security_age: u32,
+    pension_age: u32,
+    pension_monthly_income: f32,
+    other_monthly_retirement_income: f32,
     social_security_amount_early: f32,
     social_security_amount_full: f32,
     social_security_amount_delayed: f32,
@@ -110,27 +113,18 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
 
     let balance = parse_f32(block, "balance")?;
     
-    let mut pre_retirement_allocation = portfolio::Allocation::new();
     let pre_retirement_block = &block["pre-retirement_allocation"];
-    if !pre_retirement_block.is_badvalue() {
-        pre_retirement_allocation = parse_allocation(&pre_retirement_block)?;
-    }
-    let mut post_retirement_allocation = portfolio::Allocation::new();
-    let post_retirement_block = &block["post-retirement_allocation"];
-    if !post_retirement_block.is_badvalue() {
-        post_retirement_allocation = parse_allocation(&post_retirement_block)?;
-    }
-
-    if pre_retirement_block.is_badvalue() && post_retirement_block.is_badvalue() {
-        return Err("No portfolios defined".to_string());
-    }
-    if post_retirement_block.is_badvalue() {
-        post_retirement_allocation = pre_retirement_allocation;
-    }
     if pre_retirement_block.is_badvalue() {
-        pre_retirement_allocation = post_retirement_allocation;
+        return Err("pre-retirement portfolio block missing".to_string());
     }
-    
+    let pre_retirement_allocation = parse_allocation(&pre_retirement_block)?;
+
+    let post_retirement_block = &block["post-retirement_allocation"];
+    if post_retirement_block.is_badvalue() {
+        return Err("post-retirement portfolio block missing".to_string());
+    }
+    let post_retirement_allocation = parse_allocation(&post_retirement_block)?;
+
     let us_equity_expected_returns = parse_f32(block, "us_equity_expected_returns")?;
     let us_equity_standard_deviation = parse_f32(block, "us_equity_standard_deviation")?;
     let international_equity_expected_returns = parse_f32(block, "international_equity_expected_returns")?;
@@ -178,6 +172,9 @@ fn parse_retiree(input_yaml: &yaml_rust::Yaml) -> Result<Retiree, String> {
     let salary_annual = parse_f32(input_yaml, "wage_annual_salary")?;
     let retirement_contribution_percent = parse_f32(input_yaml, "retirement_contribution_percent")?;
     let social_security_age = parse_u32(input_yaml, "social_security_age")?;
+    let pension_age = parse_u32(input_yaml, "pension_age")?;
+    let pension_monthly_income = parse_f32(input_yaml, "pension_monthly_income")?;
+    let other_monthly_retirement_income = parse_f32(input_yaml, "other_monthly_retirement_income")?;
     let social_security_amount_early = parse_f32(input_yaml, "social_security_amount_early")?;
     let social_security_amount_full = parse_f32(input_yaml, "social_security_amount_full")?;
     let social_security_amount_delayed = parse_f32(input_yaml, "social_security_amount_delayed")?;
@@ -193,6 +190,9 @@ fn parse_retiree(input_yaml: &yaml_rust::Yaml) -> Result<Retiree, String> {
         salary_annual,
         retirement_contribution_percent,
         social_security_age,
+        pension_age,
+        pension_monthly_income,
+        other_monthly_retirement_income,
         social_security_amount_early,
         social_security_amount_full,
         social_security_amount_delayed,
