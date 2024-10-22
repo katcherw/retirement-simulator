@@ -1,0 +1,90 @@
+# This is the template for an input file. All currency fields and interest
+# rates must be floating point numbers (3740.00, not 3740). All other numbers
+# (ages) must be integers without decimal points. All currency is in today's
+# dollars (simulation results are all in today's dollars).
+
+# The retiree block must have either one or two retirees. The first one
+# should be the first one to retire
+
+retirees:
+     - name: John Doe
+       date_of_birth: 9/30/1960                 # mm/dd/yyyy
+       retirement_age: 67                       # age to stop collecting wages 
+       life_expectency: 90                      # Age that you expect to live to 
+       wage_annual_salary: 75000.0              # annual salary before retirement (before taxes) 
+       wage_annual_take_home_pay: 58000.0       # what you actually keep in your paycheck
+       retirement_contribution_percent: 12.0    # percentage of salary going to retirement savings
+       hsa_contribution_annual: 8300.0          # annual HSA contribution (currently not used)
+       social_security_age: 67                  # When you expect to start taking social security
+
+       # The next values should come from the social security web site to
+       # determine how much social security you will earn. Non-working
+       # spouse will earn half of the working spouse.
+       social_security_amount_early: 2693.0     # amount if you elect SS at 62
+       social_security_amount_full: 3870.0      # amount if you elect SS at 67
+       social_security_amount_delayed: 4809.0   # amount if you elect SS at 70 
+
+     - name: Jane Doe
+       date_of_birth: 4/16/1964                 # mm/dd/yyyy
+       retirement_age: 67                       # age to stop collecting wages 
+       life_expectency: 90                      # Age that you expect to live to 
+       wage_annual_salary: 87000.0              # annual salary before retirement (before taxes) 
+       wage_annual_take_home_pay: 72000.0       # what you actually keep in your paycheck
+       retirement_contribution_percent: 12.0    # percentage of salary going to retirement savings
+       hsa_contribution_annual: 0.0             # annual HSA contribution (currently not used)
+       social_security_age: 67                  # When you expect to start taking social security
+
+       # The next values should come from the social security web site to
+       # determine how much social security you will earn. Non-working
+       # spouse will earn half of the working spouse.
+       social_security_amount_early: 2693.0     # amount if you elect SS at 62
+       social_security_amount_full: 3870.0      # amount if you elect SS at 67
+       social_security_amount_delayed: 4809.0   # amount if you elect SS at 70 
+
+portfolio:
+    balance: 1200000.0              # balance of portfolio as of today
+
+    # asset allocation before retirement (should add up to 100.0)
+    pre-retirement_allocation:
+        us_equities: 56.0          # percentage of portfolio in us stocks
+        bonds: 20.0                # percentage of portfolio in bonds
+        international: 24.0        # percentage of portfolio in international stocks
+
+    # asset allocation before retirement (should add up to 100.0)
+    post-retirement_allocation:
+        us_equities: 42.0          # percentage of portfolio in us stocks
+        bonds: 40.0                # percentage of portfolio in bonds
+        international: 18.0        # percentage of portfolio in international stocks
+    
+    # forecasted returns for each asset class in real dollars. values below
+    # are obtained from Fidelity. Used for monte carlo simulation.
+    us_equity_expected_returns: 3.1
+    us_equity_standard_deviation: 15.0 
+    international_equity_expected_returns: 4.2
+    international_equity_standard_deviation: 16.0
+    bonds_expected_returns: 2.6
+    bonds_standard_deviation: 6.0
+    expected_inflation: 2.6
+
+expenses:
+    monthly: 9000.0     # estimated monthly expenses during retirment in today's dollars
+
+# tax rates from IRS. Figures below are for married filing jointly.
+tax_rates:
+    standard_deduction: 29200.0
+    levels:
+        - income: 23200.0
+          rate: 12.0
+
+        - income: 94300.0
+          rate: 22.0
+
+        - income: 201050.0
+          rate: 24.0
+
+        - income: 383900.0
+          rate: 32.0
+
+        - income: 487450.0
+          rate: 35.0
+

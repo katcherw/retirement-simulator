@@ -7,7 +7,7 @@
 extern crate yaml_rust;
 extern crate chrono;
 use yaml_rust::{YamlLoader, YamlEmitter};
-use chrono::NaiveDate;
+use chrono::{NaiveDate};
 use std::env;
 use std::fs;
 use std::process;
@@ -87,6 +87,20 @@ fn parse_f32(yaml: &yaml_rust::Yaml, field_name: &str) -> Result<f32, String> {
     
     Ok(value as f32)
 }
+
+fn parse_allocation(input_yaml: &yaml_rust::Yaml) -> Result<portfolio::Allocation, String> {
+    let us_equities = parse_f32(input_yaml, "us_equities")?;
+    let international = parse_f32(input_yaml, "international")?;
+    let bonds = parse_f32(input_yaml, "bonds")?;
+
+    let allocation = portfolio::Allocation {
+        us_equities,
+        international,
+        bonds,
+    };
+
+    Ok(allocation)
+}
     
 fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
     let block = &input_yaml["portfolio"];
@@ -96,9 +110,26 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
 
     let balance = parse_f32(block, "balance")?;
     
-    let us_equity_allocation = parse_f32(block, "us_equity_allocation")?;
-    let international_equity_allocation = parse_f32(block, "international_equity_allocation")?;
-    let bond_allocation = parse_f32(block, "bond_allocation")?;
+    let mut pre_retirement_allocation = portfolio::Allocation::new();
+    let pre_retirement_block = &block["pre-retirement_allocation"];
+    if !pre_retirement_block.is_badvalue() {
+        pre_retirement_allocation = parse_allocation(&pre_retirement_block)?;
+    }
+    let mut post_retirement_allocation = portfolio::Allocation::new();
+    let post_retirement_block = &block["post-retirement_allocation"];
+    if !post_retirement_block.is_badvalue() {
+        post_retirement_allocation = parse_allocation(&post_retirement_block)?;
+    }
+
+    if pre_retirement_block.is_badvalue() && post_retirement_block.is_badvalue() {
+        return Err("No portfolios defined".to_string());
+    }
+    if post_retirement_block.is_badvalue() {
+        post_retirement_allocation = pre_retirement_allocation;
+    }
+    if pre_retirement_block.is_badvalue() {
+        pre_retirement_allocation = post_retirement_allocation;
+    }
     
     let us_equity_expected_returns = parse_f32(block, "us_equity_expected_returns")?;
     let us_equity_standard_deviation = parse_f32(block, "us_equity_standard_deviation")?;
@@ -110,9 +141,8 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
 
     let portfolio = Portfolio {
         balance,
-        us_equity_allocation,
-        international_equity_allocation,
-        bond_allocation,
+        pre_retirement_allocation,
+        post_retirement_allocation,
         us_equity_expected_returns,
         us_equity_standard_deviation,
         international_equity_expected_returns,
@@ -375,10 +405,10 @@ fn print_historical_result_details(results: &scan::ScanResults) {
     println!();
     println!("Scenarios (sorted by worst to best):");
     for index in results.sorted_indices.iter() {
-        println!("    years {} to {}, ending balance ${:.0}",
+        println!("    years {} to {}, ending balance ${}",
                 results.scenario_results[*index].starting_year,
                 results.scenario_results[*index].ending_year,
-                results.scenario_results[*index].simulation_results.monthly_snapshot.last().unwrap().balance);
+                num_with_commas(results.scenario_results[*index].simulation_results.monthly_snapshot.last().unwrap().balance as u64));
     }
 
     let worst_index = results.sorted_indices[0];
@@ -437,8 +467,13 @@ fn main() {
     println!("-= Monte Carlo Simulation =-");
     println!();
     let mut monte_carlo_scan = MonteCarloScan::new();
-    let _ = run_scan(&input, &mut monte_carlo_scan).unwrap_or_else(|err| {
+    let monte_carlo_results = run_scan(&input, &mut monte_carlo_scan).unwrap_or_else(|err| {
         println!("Error running monte carlo simulation: {}", err);
         process::exit(1);
     });
+
+    println!();
+    println!("Worst year:");
+    print_simulation_results(&monte_carlo_results.scenario_results[monte_carlo_results.sorted_indices[0]].simulation_results);
 }
+

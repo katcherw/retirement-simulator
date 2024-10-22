@@ -36,6 +36,7 @@ pub struct RetireeInfo {
 #[derive(Debug, Default)]
 pub struct SimulationResults {
     pub retirement_date: NaiveDate,
+    pub retirement_age: u32,
     pub retirees: Vec<RetireeInfo>,
     pub monthly_snapshot: Vec<MonthlySnapshot>,
     pub average_return: f32,
@@ -111,7 +112,6 @@ pub struct Simulation<'a> {
     pub simulation_results_: SimulationResults,
    
     input_: &'a Input,
-    retirement_date_: NaiveDate,
     current_date_: NaiveDate,
     portfolio_: Portfolio,
     expenses_: f32,
@@ -126,6 +126,7 @@ impl<'a> Simulation<'a> {
 
         let mut simulation_results = SimulationResults {
             retirement_date,
+            retirement_age: input.retirees[0].retirement_age,
             retirees: Vec::new(),
             monthly_snapshot: Vec::new(),
             average_return: 0.0,
@@ -152,7 +153,6 @@ impl<'a> Simulation<'a> {
         Self {
             simulation_results_: simulation_results,
             input_: input,
-            retirement_date_: retirement_date,
             current_date_: current_date,
             portfolio_: portfolio,
             expenses_: expenses,
@@ -174,7 +174,7 @@ impl<'a> Simulation<'a> {
         
         // pre-retirement contributions
         for retiree in self.input_.retirees.iter() {
-            if self.current_date_ < self.retirement_date_ {
+            if self.current_date_ < self.simulation_results_.retirement_date {
                 let contribution = retiree.salary_annual * retiree.retirement_contribution_percent / 100.0;
                 self.portfolio_.deposit(contribution / 12.0);
             }
@@ -193,7 +193,7 @@ impl<'a> Simulation<'a> {
         
         // required withdrawals, only after retirement
         let mut withdrawals = 0.0;
-        if self.current_date_ >= self.retirement_date_ {
+        if self.current_date_ >= self.simulation_results_.retirement_date {
             if income < self.expenses_ {
                 withdrawals = self.expenses_ - income;
             }
@@ -235,7 +235,8 @@ impl<'a> Simulation<'a> {
         let annualized_return = self.portfolio_.grow(
             us_equity_expected_returns,
             international_equity_expected_returns,
-            bonds_expected_returns);
+            bonds_expected_returns,
+            self.current_date_ >= self.simulation_results_.retirement_date);
         self.sum_of_returns_ += annualized_return;
         self.simulation_results_.average_return = self.sum_of_returns_ / (self.simulation_results_.monthly_snapshot.len() as f32 + 1.0); 
 
@@ -253,10 +254,7 @@ impl<'a> Simulation<'a> {
         self.simulation_results_.monthly_snapshot.push(monthly_balance);
 
 
-        self.current_date_ = match self.current_date_.checked_add_months(chrono::Months::new(1)) {
-            Some(v) => v,
-            None => return Err("Can't increment current date".to_string()),
-        };
+        self.current_date_ = self.current_date_.checked_add_months(chrono::Months::new(1)).unwrap();
 
         Ok(self.portfolio_.balance == 0.0)
     }
