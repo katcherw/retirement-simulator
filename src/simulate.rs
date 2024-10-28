@@ -260,7 +260,7 @@ impl<'a> Simulation<'a> {
         let monthly_balance = MonthlySnapshot {
             date: self.current_date_,
             balance: self.portfolio_.balance,
-            expenses: self.expenses_, 
+            expenses: if self.current_date_ >= self.simulation_results_.retirement_date {self.expenses_} else {0.0}, 
             income,
             taxes,
             tax_rate,

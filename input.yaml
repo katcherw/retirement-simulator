@@ -12,7 +12,6 @@ retirees:
        retirement_age: 67                       # age to stop collecting wages 
        life_expectency: 90                      # Age that you expect to live to 
        wage_annual_salary: 75000.0              # annual salary before retirement (before taxes) 
-       wage_annual_take_home_pay: 58000.0       # what you actually keep in your paycheck
        retirement_contribution_percent: 12.0    # percentage of salary going to retirement savings
        hsa_contribution_annual: 8300.0          # annual HSA contribution (currently not used)
        social_security_age: 67                  # When you expect to start taking social security
@@ -32,7 +31,6 @@ retirees:
        retirement_age: 67                       # age to stop collecting wages 
        life_expectency: 90                      # Age that you expect to live to 
        wage_annual_salary: 87000.0              # annual salary before retirement (before taxes) 
-       wage_annual_take_home_pay: 72000.0       # what you actually keep in your paycheck
        retirement_contribution_percent: 12.0    # percentage of salary going to retirement savings
        hsa_contribution_annual: 0.0             # annual HSA contribution (currently not used)
        social_security_age: 67                  # When you expect to start taking social security
