@@ -75,20 +75,20 @@ expenses:
 
 # tax rates from IRS. Figures below are for married filing jointly.
 tax_rates:
-    standard_deduction: 29200.0
+    standard_deduction: 30000.0
     levels:
-        - income: 23200.0
+        - income: 23850.0
           rate: 12.0
 
-        - income: 94300.0
+        - income: 96950.0
           rate: 22.0
 
-        - income: 201050.0
+        - income: 206700.0
           rate: 24.0
 
-        - income: 383900.0
+        - income: 394600.0
           rate: 32.0
 
-        - income: 487450.0
+        - income: 501050.0
           rate: 35.0
 
