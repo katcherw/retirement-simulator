@@ -199,7 +199,7 @@ affect the outcome enough to change the overall plan.
 ## Limitations
 
 The goal of this application is to get an idea of the big picture of a retirement plan.
-There is so much unceratainty about future returns and expenses, that it is futile to 
+There is so much unceratainty about future returns and expenses that it is futile to 
 try to focus on the small details. In that spirit, this application simplified some assumptions.
 However, as the application evolves, these limitations may be removed in the future.
 
@@ -207,7 +207,7 @@ However, as the application evolves, these limitations may be removed in the fut
 Social Security Administration publishes tables to look up the income based on the earnings
 history and the age of the retiree. Instead of reproducing this table in code, this application
 simply makes an estimate based on the values reported by the Social Security web site. These
-values include estimated benefits at ages 62, 27, and 70 (for later retirees). Ages in between
+values include estimated benefits at ages 62, 67, and 70 (for later retirees). Ages in between
 are simply interpolated (averaged) between the reported values.
 
 **Income tax.** This can get very complicated. Social Security is taxed either
