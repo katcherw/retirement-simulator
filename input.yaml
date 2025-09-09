@@ -62,11 +62,11 @@ portfolio:
     
     # forecasted returns for each asset class in real dollars. values below
     # are obtained from Fidelity. Used for monte carlo simulation.
-    us_equity_expected_returns: 3.1
+    us_equity_expected_returns: 3.2
     us_equity_standard_deviation: 15.0 
-    international_equity_expected_returns: 4.2
+    international_equity_expected_returns: 4.1
     international_equity_standard_deviation: 16.0
-    bonds_expected_returns: 2.6
+    bonds_expected_returns: 2.5
     bonds_standard_deviation: 6.0
     expected_inflation: 2.6
 
