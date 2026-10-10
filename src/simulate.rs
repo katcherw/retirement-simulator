@@ -51,25 +51,24 @@ fn is_everyone_dead(current_date: &NaiveDate, input: &Input) -> bool {
     return true;
 }
 
-fn get_taxes(mut monthly_income: f32, standard_deduction: f32, tax_rates: &Vec<TaxLevel>) -> (f32, f32) {
-    let mut total_tax: f32 = 0.0;
-    if monthly_income > standard_deduction / 12.0 {
-        monthly_income -= standard_deduction / 12.0;
-    }
-    else {
-        monthly_income = 0.0;
-    }
-        
-    for tax_rate in tax_rates.iter() {
-        if monthly_income * 12.0 <= tax_rate.income {
-            return (total_tax + monthly_income * tax_rate.rate / 100.0, tax_rate.rate)
+// returns the monthly tax and the marginal tax rate (percentage) for the given
+// monthly income. Tax levels must be sorted by income, with each level's income
+// being the lower bound of its bracket.
+fn get_taxes(monthly_income: f32, standard_deduction: f32, tax_rates: &[TaxLevel]) -> (f32, f32) {
+    let taxable_income = (monthly_income * 12.0 - standard_deduction).max(0.0);
+    let mut annual_tax: f32 = 0.0;
+    let mut marginal_rate: f32 = 0.0;
+
+    for (i, level) in tax_rates.iter().enumerate() {
+        if taxable_income <= level.income {
+            break;
         }
-        else {
-            total_tax += tax_rate.income / 12.0 * tax_rate.rate / 100.0;
-            monthly_income -= tax_rate.income / 12.0;
-        }
+        let upper = tax_rates.get(i + 1).map_or(f32::MAX, |next| next.income);
+        annual_tax += (taxable_income.min(upper) - level.income) * level.rate / 100.0;
+        marginal_rate = level.rate;
     }
-    panic!("Tax rate too high!");
+
+    (annual_tax / 12.0, marginal_rate)
 }
     
 // this is an estimate. The IRS has a big table for retirement income based on
@@ -311,6 +310,86 @@ mod tests {
         assert_eq!(get_social_security_monthly_income(71, early, full, delayed), delayed);
         assert_eq!(get_social_security_monthly_income(63, early, full, delayed), 1200.0);
         assert_eq!(get_social_security_monthly_income(68, early, full, delayed), 2000.0 + 2000.0/3.0);
+    }
+
+    // 2026 married filing jointly brackets
+    const STANDARD_DEDUCTION: f32 = 32200.0;
+
+    fn brackets() -> Vec<TaxLevel> {
+        [(0.0, 10.0), (24800.0, 12.0), (100800.0, 22.0), (211400.0, 24.0),
+         (403550.0, 32.0), (512450.0, 35.0), (768700.0, 37.0)]
+            .iter()
+            .map(|&(income, rate)| TaxLevel { income, rate })
+            .collect()
+    }
+
+    // returns (annual tax, marginal rate) for an annual gross income
+    fn annual_taxes(annual_income: f32) -> (f32, f32) {
+        let (monthly_tax, rate) = get_taxes(annual_income / 12.0, STANDARD_DEDUCTION, &brackets());
+        (monthly_tax * 12.0, rate)
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!((actual - expected).abs() < 0.5, "expected {expected}, got {actual}");
+    }
+
+    #[test]
+    fn test_taxes_below_standard_deduction() {
+        assert_eq!(annual_taxes(0.0), (0.0, 0.0));
+        assert_eq!(annual_taxes(STANDARD_DEDUCTION), (0.0, 0.0));
+        assert_eq!(annual_taxes(20000.0), (0.0, 0.0));
+    }
+
+    #[test]
+    fn test_taxes_lowest_bracket() {
+        let (tax, rate) = annual_taxes(STANDARD_DEDUCTION + 10000.0);
+        assert_close(tax, 1000.0);
+        assert_eq!(rate, 10.0);
+    }
+
+    #[test]
+    fn test_taxes_bracket_boundaries() {
+        // taxable income exactly at the top of a bracket stays at that rate
+        let (tax, rate) = annual_taxes(STANDARD_DEDUCTION + 24800.0);
+        assert_close(tax, 2480.0);
+        assert_eq!(rate, 10.0);
+
+        let (tax, rate) = annual_taxes(STANDARD_DEDUCTION + 100800.0);
+        assert_close(tax, 2480.0 + 9120.0);
+        assert_eq!(rate, 12.0);
+    }
+
+    #[test]
+    fn test_taxes_middle_brackets() {
+        // taxable 67,800: 10% of 24,800 + 12% of 43,000
+        let (tax, rate) = annual_taxes(100000.0);
+        assert_close(tax, 2480.0 + 5160.0);
+        assert_eq!(rate, 12.0);
+
+        // taxable 367,800: 2,480 + 9,120 + 24,332 + 24% of 156,400
+        let (tax, rate) = annual_taxes(400000.0);
+        assert_close(tax, 2480.0 + 9120.0 + 24332.0 + 37536.0);
+        assert_eq!(rate, 24.0);
+    }
+
+    #[test]
+    fn test_taxes_top_bracket() {
+        // taxable 967,800: all brackets filled up to 768,700, then 37%
+        let (tax, rate) = annual_taxes(1000000.0);
+        let below_top = 2480.0 + 9120.0 + 24332.0 + 46116.0 + 34848.0 + 89687.5;
+        assert!((tax - (below_top + (967800.0 - 768700.0) * 0.37)).abs() < 5.0);
+        assert_eq!(rate, 37.0);
+    }
+
+    #[test]
+    fn test_taxes_are_monotonic() {
+        // more income should never mean less tax
+        let mut previous = 0.0;
+        for income in (0..2_000_000).step_by(5000) {
+            let (tax, _) = annual_taxes(income as f32);
+            assert!(tax >= previous, "tax dropped at income {income}");
+            previous = tax;
+        }
     }
 }
 

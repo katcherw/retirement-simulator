@@ -50,6 +50,8 @@ struct Expenses {
     monthly: f32,
 }
 
+// a tax bracket: income is the lower bound of taxable income (after the
+// standard deduction) that is taxed at rate (percentage)
 #[derive(Debug, Copy, Clone)]
 pub struct TaxLevel {
     income: f32,
@@ -246,24 +248,28 @@ fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
         return Err("levels block missing".to_string());
     }
 
-    tax_levels.push( TaxLevel {income: 0.0, rate: 0.0});
     let vec = block.as_vec().ok_or("no tax rates found")?;
     for element in vec {
-        let tax_rate = parse_tax_rate(element);
-        match tax_rate {
-            Ok(v) => tax_levels.push(v),
-            Err(e) => return Err(e),
-        };
+        tax_levels.push(parse_tax_rate(element)?);
     }
 
-    //for (i, tax_rate) in tax_rates.iter().enumerate() {
-    for i in 1..tax_levels.len() {
-        if i < tax_levels.len() - 1 {
-            tax_levels[i].income = tax_levels[i + 1].income - 1.0;
+    // each level is the lower bound of a bracket, so sort by income and make
+    // sure the brackets cover all income starting from 0
+    tax_levels.sort_by(|a, b| a.income.total_cmp(&b.income));
+    match tax_levels.first() {
+        None => return Err("no tax rates found".to_string()),
+        Some(first) if first.income != 0.0 => {
+            return Err("first tax level must have income 0.0 (the lowest bracket)".to_string());
         }
-        else {
-            tax_levels[i].income = f32::MAX;
+        _ => {}
+    }
+    for pair in tax_levels.windows(2) {
+        if pair[0].income == pair[1].income {
+            return Err(format!("duplicate tax level for income {}", pair[0].income));
         }
+    }
+    if tax_levels.iter().any(|level| level.rate < 0.0 || level.rate >= 100.0) {
+        return Err("tax rates must be between 0.0 and 100.0".to_string());
     }
 
     let tax_rates = TaxRates {
@@ -291,9 +297,8 @@ fn parse_input_file(fname: &str) -> Result<Input, String> {
     let portfolio = parse_portfolio(&doc)?;
     let expenses = parse_expenses(&doc)?;
     let retirees = parse_retirees(&doc)?;
-    let mut tax_rates = parse_tax_rates(&doc)?;
-    tax_rates.tax_levels.sort_unstable_by_key(|e| e.income as u32);
-    
+    let tax_rates = parse_tax_rates(&doc)?;
+
     let input = Input {
         retirees,
         portfolio,
@@ -475,5 +480,54 @@ fn main() {
     println!();
     println!("Worst year:");
     print_simulation_results(&monte_carlo_results.scenario_results[monte_carlo_results.sorted_indices[0]].simulation_results);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_levels(levels_yaml: &str) -> Result<TaxRates, String> {
+        let yaml = format!("tax_rates:\n  standard_deduction: 32200.0\n  levels:\n{levels_yaml}");
+        let docs = YamlLoader::load_from_str(&yaml).unwrap();
+        parse_tax_rates(&docs[0])
+    }
+
+    #[test]
+    fn test_parse_tax_rates_sorts_levels() {
+        let tax_rates = parse_levels(
+            "    - {income: 24800.0, rate: 12.0}\n\
+             \x20   - {income: 0.0, rate: 10.0}\n\
+             \x20   - {income: 100800.0, rate: 22.0}\n").unwrap();
+        assert_eq!(tax_rates.standard_deduction, 32200.0);
+        let levels: Vec<(f32, f32)> = tax_rates.tax_levels.iter().map(|l| (l.income, l.rate)).collect();
+        assert_eq!(levels, vec![(0.0, 10.0), (24800.0, 12.0), (100800.0, 22.0)]);
+    }
+
+    #[test]
+    fn test_parse_tax_rates_requires_zero_level() {
+        let err = parse_levels("    - {income: 24800.0, rate: 12.0}\n").unwrap_err();
+        assert!(err.contains("income 0.0"), "{err}");
+    }
+
+    #[test]
+    fn test_parse_tax_rates_rejects_duplicates() {
+        let err = parse_levels(
+            "    - {income: 0.0, rate: 10.0}\n\
+             \x20   - {income: 0.0, rate: 12.0}\n").unwrap_err();
+        assert!(err.contains("duplicate"), "{err}");
+    }
+
+    #[test]
+    fn test_parse_tax_rates_rejects_bad_rate() {
+        let err = parse_levels("    - {income: 0.0, rate: 120.0}\n").unwrap_err();
+        assert!(err.contains("between"), "{err}");
+    }
+
+    #[test]
+    fn test_parse_sample_input() {
+        let input = parse_input_file("input.yaml").unwrap();
+        assert_eq!(input.tax_rates.tax_levels.len(), 7);
+        assert_eq!(input.tax_rates.tax_levels[0].income, 0.0);
+    }
 }
 

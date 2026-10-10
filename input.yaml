@@ -74,9 +74,15 @@ expenses:
     monthly: 9000.0     # estimated monthly expenses during retirment in today's dollars
 
 # tax rates from IRS. Figures below are for married filing jointly.
+# Each level is the taxable income (after the standard deduction) where the
+# bracket starts, and the rate applied to income in that bracket. The first
+# level must start at 0.0.
 tax_rates:
     standard_deduction: 32200.0
     levels:
+        - income: 0.0
+          rate: 10.0
+
         - income: 24800.0
           rate: 12.0
 
@@ -91,4 +97,7 @@ tax_rates:
 
         - income: 512450.0
           rate: 35.0
+
+        - income: 768700.0
+          rate: 37.0
 
