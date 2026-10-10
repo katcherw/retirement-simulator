@@ -3,8 +3,9 @@
 # (ages) must be integers without decimal points. All currency is in today's
 # dollars (simulation results are all in today's dollars).
 
-# The retiree block must have either one or two retirees. The first one
-# should be the first one to retire
+# The retiree block must have either one or two retirees. Withdrawals for
+# expenses begin when the first of them retires; a retiree who is still
+# working brings in their salary (minus contributions) until they retire.
 
 retirees:
      - name: John Doe
@@ -68,7 +69,6 @@ portfolio:
     international_equity_standard_deviation: 16.0
     bonds_expected_returns: 2.5
     bonds_standard_deviation: 6.0
-    expected_inflation: 2.6
 
 expenses:
     monthly: 9000.0     # estimated monthly expenses during retirment in today's dollars

@@ -34,11 +34,11 @@ pub struct HistoricalReturns {
 }
 
 fn str_to_u32(s: &str) -> Result<u32, String> {
-    s.trim().parse::<u32>().map_err(|v| (format!("Invalid integer: {}", v)))
+    s.trim().parse::<u32>().map_err(|v| format!("Invalid integer: {}", v))
 }
 
 fn str_to_f32(s: &str) -> Result<f32, String> {
-    s.trim().parse::<f32>().map_err(|v| (format!("Invalid floating point: {}", v)))
+    s.trim().parse::<f32>().map_err(|v| format!("Invalid floating point: {}", v))
 }
 
 fn str_to_f32_optional(s: &str) -> Option<f32> {

@@ -52,14 +52,14 @@ floating numbers and must be entered with a decimal (e.g. 3140.00).
 ### Retirees
 
 The retirees section contains blocks for either one or two retirees depending whether the simulation is
-for a single person or married couple. For a single person, simply delete one of the blocks. The retiree
-retiring first should be in the first block.
+for a single person or married couple. For a single person, simply delete one of the blocks. The age
+shown in the output is the age of the retiree in the first block.
 
 | Value | Description |
 | --- | --- |
 | name | Used for reporting purposes. |
 | date_of_birth | Entered in mm/dd/yyyy. |
-| retirement_age | Age when contributions will end and withdrawals from investments to pay for expenses will begin. |
+| retirement_age | Age when this retiree's wages and contributions end. Withdrawals from investments to pay for expenses begin when the first retiree retires; until the other retiree retires, their salary (minus contributions) counts as income. |
 | life_expectency | Many experts recommend to plan to around 90 so you don't run out of money if all goes well. |
 | wage_annual_salary | This is your pre-retirement salary, used only for calculating your investment contributions |
 | retirement_contribution_percent | Percentage of salary that you're contributing to your retirement accounts. |
