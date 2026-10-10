@@ -3,8 +3,9 @@
 # (ages) must be integers without decimal points. All currency is in today's
 # dollars (simulation results are all in today's dollars).
 
-# The retiree block must have either one or two retirees. The first one
-# should be the first one to retire
+# The retiree block must have either one or two retirees. Withdrawals for
+# expenses begin when the first of them retires; a retiree who is still
+# working brings in their salary (minus contributions) until they retire.
 
 retirees:
      - name: John Doe
