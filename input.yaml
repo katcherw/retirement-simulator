@@ -69,7 +69,6 @@ portfolio:
     international_equity_standard_deviation: 16.0
     bonds_expected_returns: 2.5
     bonds_standard_deviation: 6.0
-    expected_inflation: 2.6
 
 expenses:
     monthly: 9000.0     # estimated monthly expenses during retirment in today's dollars

@@ -133,7 +133,6 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
     let international_equity_standard_deviation = parse_f32(block, "international_equity_standard_deviation")?;
     let bonds_expected_returns = parse_f32(block, "bonds_expected_returns")?;
     let bonds_standard_deviation = parse_f32(block, "bonds_standard_deviation")?;
-    let expected_inflation = parse_f32(block, "expected_inflation")?;
 
     let portfolio = Portfolio {
         balance,
@@ -145,7 +144,6 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
         international_equity_standard_deviation,
         bonds_expected_returns,
         bonds_standard_deviation,
-        expected_inflation,
     };
     
     Ok(portfolio)

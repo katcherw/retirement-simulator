@@ -27,6 +27,7 @@ pub struct MonthlySnapshot {
 // reporting easier
 #[derive(Debug)]
 pub struct RetireeInfo {
+    #[allow(dead_code)] // not used yet, but useful for reporting
     pub name: String,
     pub retirement_date: NaiveDate,
     pub social_security_date: NaiveDate,
@@ -37,7 +38,6 @@ pub struct RetireeInfo {
 #[derive(Debug, Default)]
 pub struct SimulationResults {
     pub retirement_date: NaiveDate,
-    pub retirement_age: u32,
     pub retirees: Vec<RetireeInfo>,
     pub monthly_snapshot: Vec<MonthlySnapshot>,
     pub average_return: f32,
@@ -131,7 +131,6 @@ impl<'a> Simulation<'a> {
 
         let mut simulation_results = SimulationResults {
             retirement_date,
-            retirement_age: first_retiree.retirement_age,
             retirees: Vec::new(),
             monthly_snapshot: Vec::new(),
             average_return: 0.0,
@@ -435,7 +434,6 @@ mod tests {
                 international_equity_standard_deviation: 0.0,
                 bonds_expected_returns: 0.0,
                 bonds_standard_deviation: 0.0,
-                expected_inflation: 0.0,
             },
             expenses: crate::Expenses { monthly: monthly_expenses },
             tax_rates: crate::TaxRates {
@@ -451,7 +449,6 @@ mod tests {
         let input = test_input(vec![test_retiree(63, 24000.0), test_retiree(61, 12000.0)], 0.0);
         let results = run_simulation(&input).unwrap();
         assert_eq!(results.retirement_date, results.retirees[1].retirement_date);
-        assert_eq!(results.retirement_age, 61);
     }
 
     #[test]

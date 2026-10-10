@@ -28,7 +28,6 @@ pub struct Portfolio {
     pub international_equity_standard_deviation: f32,
     pub bonds_expected_returns: f32,
     pub bonds_standard_deviation: f32,
-    pub expected_inflation: f32,
 }
 
 impl Portfolio {
