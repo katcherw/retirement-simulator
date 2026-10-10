@@ -117,6 +117,10 @@ taxes, retirement contributions, benefits, etc.).
 This section contains the IRS tax rates and standard deduction. The sample file contains the latest values for married
 couples filing jointly. You can change this for singles or values from future years.
 
+Each entry in `levels` is one tax bracket: `income` is the taxable income (after the standard
+deduction) where the bracket starts, and `rate` is the percentage applied to income within that
+bracket. The first level must start at `0.0`, and the last level applies to all income above it.
+
 ## Output
 
 There are 3 sections of the output: Uniform returns, Historical returns, and Monte Carlo simulation.
