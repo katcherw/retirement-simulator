@@ -46,8 +46,8 @@ root directory of this project.
 
 A sample configuration file is found in input.yaml.
 
-All dollar amounts are in today's dollars. All dollar amounts and percentages are 
-floating numbers and must be entered with a decimal (e.g. 3140.00).
+All dollar amounts are in today's dollars. Dollar amounts and percentages may be
+entered with or without a decimal (e.g. 3140.00 or 3140). Ages must be whole numbers.
 
 ### Retirees
 
@@ -111,6 +111,11 @@ the actual returns minus inflation.
 The expenses section is your estimated monthly expenses during retirement. A
 good way of estimating this amount is using your current take-home pay (after
 taxes, retirement contributions, benefits, etc.).
+
+| Value | Description |
+| --- | --- |
+| monthly | Monthly expenses during retirement. |
+| survivor_percent | Optional. Percentage of `monthly` that remains after one spouse dies (e.g. 70.0). Defaults to 100.0. |
 
 ### Tax Rates
 
@@ -221,7 +226,14 @@ withdrawn from the retirement accounts) is taxed at the normal income tax
 rate. Besides the standard deduction, we don't make any other adjustments to
 income or allow for itemization.  State taxes are ignored. We do estimate the
 taxes needed to pay for the withdrawals from the retirement accounts and add that
-to the withdrawal.
+to the withdrawal. Payroll taxes on wages are ignored, and the same tax brackets
+are used after a spouse dies (a survivor would normally file as single).
+
+**Death of a spouse.** When a retiree reaches their life expectancy, their wages,
+pension, and other income stop. The survivor receives the larger of their own
+social security benefit and the deceased's benefit, if the deceased had started
+collecting it. Pension survivor benefits are not modelled, and the survivor
+benefit starts immediately regardless of the survivor's age.
 
 ## Disclaimer
 
