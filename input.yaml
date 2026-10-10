@@ -1,7 +1,7 @@
-# This is the template for an input file. All currency fields and interest
-# rates must be floating point numbers (3740.00, not 3740). All other numbers
-# (ages) must be integers without decimal points. All currency is in today's
-# dollars (simulation results are all in today's dollars).
+# This is the template for an input file. Currency fields and interest rates
+# may be entered with or without a decimal (3740.00 or 3740). Ages must be
+# integers without decimal points. All currency is in today's dollars
+# (simulation results are all in today's dollars).
 
 # The retiree block must have either one or two retirees. Withdrawals for
 # expenses begin when the first of them retires; a retiree who is still
@@ -72,6 +72,7 @@ portfolio:
 
 expenses:
     monthly: 9000.0     # estimated monthly expenses during retirment in today's dollars
+    survivor_percent: 100.0   # percentage of expenses remaining after a spouse dies (optional)
 
 # tax rates from IRS. Figures below are for married filing jointly.
 # Each level is the taxable income (after the standard deduction) where the

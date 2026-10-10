@@ -20,11 +20,14 @@ impl MonteCarloScan {
         let mut simulation = simulate::Simulation::new(input);
 
         let us_distribution = Normal::new(input.portfolio.us_equity_expected_returns,
-                                          input.portfolio.us_equity_standard_deviation).unwrap();
+                                          input.portfolio.us_equity_standard_deviation)
+            .map_err(|e| format!("Invalid US equity returns: {e}"))?;
         let international_distribution = Normal::new(input.portfolio.international_equity_expected_returns,
-                                          input.portfolio.international_equity_standard_deviation).unwrap();
+                                          input.portfolio.international_equity_standard_deviation)
+            .map_err(|e| format!("Invalid international equity returns: {e}"))?;
         let bonds_distribution = Normal::new(input.portfolio.bonds_expected_returns,
-                                          input.portfolio.bonds_standard_deviation).unwrap();
+                                          input.portfolio.bonds_standard_deviation)
+            .map_err(|e| format!("Invalid bond returns: {e}"))?;
 
         'outer: loop {
             let us_returns = us_distribution.sample(&mut rand::thread_rng());

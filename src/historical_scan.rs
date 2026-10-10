@@ -24,6 +24,7 @@ struct HistoricalReturnsOneYear {
     tbill10year: f32,
     corp_bonds: f32,
     real_estate: f32,
+    gold: f32,
     international: Option<f32>,
 }
 
@@ -60,6 +61,7 @@ fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturns
         totals.tbill10year += ret.tbill10year;
         totals.corp_bonds += ret.corp_bonds;
         totals.real_estate += ret.real_estate;
+        totals.gold += ret.gold;
         if ret.international.is_some() {
             totals.international = Some(totals.international.unwrap() +
                 ret.international.unwrap());
@@ -76,6 +78,7 @@ fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturns
         averages.tbill10year = totals.tbill10year / count;
         averages.corp_bonds = totals.corp_bonds / count;
         averages.real_estate = totals.real_estate / count;
+        averages.gold = totals.gold / count;
         averages.international = Some(if international_count > 0.0
             { totals.international.unwrap() / international_count } else { 0.0 });
     };
@@ -84,12 +87,16 @@ fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturns
 }
 
 fn parse_returns() -> Result<HistoricalReturns, String> {
-
-    let mut annual_returns: Vec<HistoricalReturnsOneYear> = Vec::new();
-
     let fname = Path::new("returns.csv");
     let file = File::open(fname).map_err(|_| "Can't open returns.csv")?;
-    let reader = io::BufReader::new(file);
+    parse_returns_from(io::BufReader::new(file))
+}
+
+// columns: year, 7 nominal returns, inflation, then real returns for
+// S&P 500, 3-month T-bill, 10-year T-bond, Baa corporate bonds, real estate,
+// gold, and international
+fn parse_returns_from<R: BufRead>(reader: R) -> Result<HistoricalReturns, String> {
+    let mut annual_returns: Vec<HistoricalReturnsOneYear> = Vec::new();
 
     for (i, line) in reader.lines().enumerate() {
         if i < 2 {
@@ -97,7 +104,7 @@ fn parse_returns() -> Result<HistoricalReturns, String> {
         }
         let line = line.map_err(|v| format!("Can't read line from returns.csv: {}", v.to_string()))?;
         let toks: Vec<&str> = line.split(',').collect();
-        if toks.len() < 14 {
+        if toks.len() < 16 {
             return Err(format!("Can't parse line [{}]", line));
         }
 
@@ -108,10 +115,8 @@ fn parse_returns() -> Result<HistoricalReturns, String> {
         let tbill10year = str_to_f32(toks[11])? * 100.0;
         let corp_bonds = str_to_f32(toks[12])? * 100.0;
         let real_estate = str_to_f32(toks[13])? * 100.0;
-        let mut international = str_to_f32_optional(toks[14]);
-        if let Some(v) = international {
-            international = Some(v * 100.0);
-        }
+        let gold = str_to_f32(toks[14])? * 100.0;
+        let international = str_to_f32_optional(toks[15]).map(|v| v * 100.0);
 
         let returns = HistoricalReturnsOneYear {
             year,
@@ -121,6 +126,7 @@ fn parse_returns() -> Result<HistoricalReturns, String> {
             tbill10year,
             corp_bonds,
             real_estate,
+            gold,
             international,
         };
 
@@ -200,3 +206,42 @@ impl scan::Scannable for HistoricalScan {
 }
 
     
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HEADER: &str = "title\nheader\n";
+
+    #[test]
+    fn test_parse_returns_columns() {
+        let csv = format!("{HEADER}2025,0.17,0.04,0.07,0.06,0.01,0.66,0.31,0.0274,0.1459,0.0144,0.0493,0.0412,-0.0113,0.6179,0.2838\n");
+        let returns = parse_returns_from(csv.as_bytes()).unwrap();
+        let year = &returns.annual_returns[0];
+        assert_eq!(year.year, 2025);
+        assert!((year.sp500return - 14.59).abs() < 0.001);
+        assert!((year.tbill10year - 4.93).abs() < 0.001);
+        assert!((year.gold - 61.79).abs() < 0.001);
+        assert!((year.international.unwrap() - 28.38).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_parse_returns_missing_international() {
+        let csv = format!("{HEADER}1928,0.43,0.03,0.008,0.03,0.01,0.001,,-0.0116,0.4549,0.0429,0.0201,0.0443,0.0268,0.0127,\n");
+        let returns = parse_returns_from(csv.as_bytes()).unwrap();
+        assert_eq!(returns.annual_returns[0].international, None);
+    }
+
+    #[test]
+    fn test_parse_returns_short_line_is_error() {
+        let csv = format!("{HEADER}1928,0.43,0.03,0.008,0.03,0.01,0.001,,-0.0116,0.4549,0.0429,0.0201,0.0443,0.0268\n");
+        assert!(parse_returns_from(csv.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn test_parse_returns_file() {
+        let returns = parse_returns().unwrap();
+        assert_eq!(returns.annual_returns[0].year, 1928);
+        assert!(returns.annual_returns.iter().any(|r| r.international.is_none()));
+    }
+}

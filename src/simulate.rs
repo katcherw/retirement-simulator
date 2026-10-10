@@ -30,6 +30,8 @@ pub struct RetireeInfo {
     #[allow(dead_code)] // not used yet, but useful for reporting
     pub name: String,
     pub retirement_date: NaiveDate,
+    // first day after the retiree's life expectancy is reached
+    pub death_date: NaiveDate,
     pub social_security_date: NaiveDate,
     pub date_of_birth: NaiveDate,
     social_security_income: f32,
@@ -43,14 +45,6 @@ pub struct SimulationResults {
     pub average_return: f32,
 }
 
-fn is_everyone_dead(current_date: &NaiveDate, input: &Input) -> bool {
-    for retiree in input.retirees.iter() {
-        if get_age(&retiree.date_of_birth, &current_date) <= retiree.life_expectency {
-            return false;
-        }
-    }
-    return true;
-}
 
 // returns the monthly tax and the marginal tax rate (percentage) for the given
 // monthly income. Tax levels must be sorted by income, with each level's income
@@ -140,6 +134,7 @@ impl<'a> Simulation<'a> {
             let retiree_result = RetireeInfo {
                 name: retiree.name.to_string(),
                 retirement_date: add_years(&retiree.date_of_birth, retiree.retirement_age),
+                death_date: add_years(&retiree.date_of_birth, retiree.life_expectency + 1),
                 social_security_date: add_years(&retiree.date_of_birth, retiree.social_security_age),
                 date_of_birth: retiree.date_of_birth.clone(),
                 social_security_income: get_social_security_monthly_income(
@@ -173,11 +168,14 @@ impl<'a> Simulation<'a> {
         international_equity_expected_returns: f32,
         bonds_expected_returns: f32) -> Result<bool, String> {
         
-        if is_everyone_dead(&self.current_date_, &self.input_) {
+        let date = self.current_date_;
+        let infos = &self.simulation_results_.retirees;
+        let alive: Vec<bool> = infos.iter().map(|info| date < info.death_date).collect();
+        if !alive.contains(&true) {
             return Ok(true);
         }
-        
-        let household_retired = self.current_date_ >= self.simulation_results_.retirement_date;
+        let someone_died = alive.contains(&false);
+        let household_retired = date >= self.simulation_results_.retirement_date;
 
         // pre-retirement contributions, until each retiree's own retirement.
         // Before the household retires, wages are assumed to cover expenses.
@@ -185,7 +183,7 @@ impl<'a> Simulation<'a> {
         // (minus pre-tax contributions) as income.
         let mut wages = 0.0;
         for (i, retiree) in self.input_.retirees.iter().enumerate() {
-            if self.current_date_ < self.simulation_results_.retirees[i].retirement_date {
+            if alive[i] && date < infos[i].retirement_date {
                 let contribution = retiree.salary_annual * retiree.retirement_contribution_percent / 100.0 / 12.0;
                 self.portfolio_.deposit(contribution);
                 if household_retired {
@@ -194,11 +192,18 @@ impl<'a> Simulation<'a> {
             }
         }
 
-        // social security: before or after retirement
+        // social security: before or after retirement. After a retiree dies,
+        // the survivor receives the larger of their own benefit and the
+        // deceased's benefit (if the deceased had started collecting).
+        let survivor_benefit = infos.iter().zip(alive.iter())
+            .filter(|(info, &is_alive)| !is_alive && info.social_security_date < info.death_date)
+            .map(|(info, _)| info.social_security_income)
+            .fold(0.0, f32::max);
         let mut income = 0.0;
-        for (i, _retiree) in self.input_.retirees.iter().enumerate() {
-            if self.current_date_ > self.simulation_results_.retirees[i].social_security_date {
-                income += self.simulation_results_.retirees[i].social_security_income;
+        for (i, info) in infos.iter().enumerate() {
+            if alive[i] {
+                let own_benefit = if date > info.social_security_date {info.social_security_income} else {0.0};
+                income += f32::max(own_benefit, survivor_benefit);
             }
         }
 
@@ -208,10 +213,10 @@ impl<'a> Simulation<'a> {
         income += wages;
         taxable_income += wages;
 
-        // pension income, before or after retirement
-        for retiree in self.input_.retirees.iter() {
+        // pension income, before or after retirement, until the retiree dies
+        for (i, retiree) in self.input_.retirees.iter().enumerate() {
             let pension_date = add_years(&retiree.date_of_birth, retiree.pension_age);
-            if self.current_date_ >= pension_date {
+            if alive[i] && date >= pension_date {
                 income += retiree.pension_monthly_income;
                 taxable_income += retiree.pension_monthly_income;
             }
@@ -219,51 +224,48 @@ impl<'a> Simulation<'a> {
 
         // other retirement income, after each retiree's own retirement
         for (i, retiree) in self.input_.retirees.iter().enumerate() {
-            if self.current_date_ >= self.simulation_results_.retirees[i].retirement_date {
+            if alive[i] && date >= infos[i].retirement_date {
                 income += retiree.other_monthly_retirement_income;
                 taxable_income += retiree.other_monthly_retirement_income;
             }
         }
 
-        // required withdrawals, only after retirement
-        let mut withdrawals = 0.0;
-        if household_retired {
-            if income < self.expenses_ {
-                withdrawals = self.expenses_ - income;
-            }
+        // expenses are paid from the portfolio only after retirement, and are
+        // reduced for a surviving spouse
+        let expenses = if !household_retired {
+            0.0
         }
+        else if someone_died {
+            self.expenses_ * self.input_.expenses.survivor_percent / 100.0
+        }
+        else {
+            self.expenses_
+        };
+        let withdrawals = f32::max(expenses - income, 0.0);
 
         // tax on income and withdrawals. tax rate on ss will be higher, but ignore that for now
-        let (mut taxes, tax_rate) = get_taxes(
+        let (base_taxes, tax_rate) = get_taxes(
             withdrawals + taxable_income,
             self.input_.tax_rates.standard_deduction,
             &self.tax_rates_);
 
-        // we need to withdraw more cash to cover taxes. But these withdrawals
-        // will cost more taxes, causing more withdrawals, and more taxes and so
-        // on. This can be calculated as an infinite power series.
-        let tax_on_tax = taxes / (1.0 - tax_rate / 100.0);
-        taxes = tax_on_tax;
-        
+        // taxes are paid first from any income left over after expenses. The
+        // rest must be withdrawn, but these withdrawals cost more taxes,
+        // causing more withdrawals, and more taxes and so on. This can be
+        // calculated as an infinite power series.
+        let surplus = f32::max(income - expenses, 0.0);
+        let taxes = base_taxes + f32::max(base_taxes - surplus, 0.0) * tax_rate / (100.0 - tax_rate);
+
+        let net_cash_flow = income - expenses - taxes;
         let mut withdrawal_rate = 0.0;
-        if self.portfolio_.balance > 0.0 {
-            withdrawal_rate = (withdrawals + taxes) * 12.0 / self.portfolio_.balance;
-        }
-            
-        if income > self.expenses_ {
-            self.portfolio_.deposit(income - self.expenses_);
-        }
-        if self.portfolio_.balance > taxes {
-            self.portfolio_.withdraw(taxes);
+        if net_cash_flow >= 0.0 {
+            self.portfolio_.deposit(net_cash_flow);
         }
         else {
-            self.portfolio_.balance = 0.0
-        }
-        if self.portfolio_.balance > withdrawals {
-            self.portfolio_.withdraw(withdrawals);
-        }
-        else {
-            self.portfolio_.balance = 0.0
+            if self.portfolio_.balance > 0.0 {
+                withdrawal_rate = -net_cash_flow * 12.0 / self.portfolio_.balance;
+            }
+            self.portfolio_.withdraw(-net_cash_flow);
         }
 
         let annualized_return = self.portfolio_.grow(
@@ -277,7 +279,7 @@ impl<'a> Simulation<'a> {
         let monthly_balance = MonthlySnapshot {
             date: self.current_date_,
             balance: self.portfolio_.balance,
-            expenses: if self.current_date_ >= self.simulation_results_.retirement_date {self.expenses_} else {0.0}, 
+            expenses,
             income,
             taxes,
             tax_rate,
@@ -435,12 +437,115 @@ mod tests {
                 bonds_expected_returns: 0.0,
                 bonds_standard_deviation: 0.0,
             },
-            expenses: crate::Expenses { monthly: monthly_expenses },
+            expenses: crate::Expenses { monthly: monthly_expenses, survivor_percent: 100.0 },
             tax_rates: crate::TaxRates {
                 standard_deduction: 1.0e9,
                 tax_levels: vec![TaxLevel { income: 0.0, rate: 0.0 }],
             },
         }
+    }
+
+    fn flat_tax(input: &mut Input, rate: f32) {
+        input.tax_rates.standard_deduction = 0.0;
+        input.tax_rates.tax_levels = vec![TaxLevel { income: 0.0, rate }];
+    }
+
+    #[test]
+    fn test_pre_retirement_pension_is_saved() {
+        let mut retiree = test_retiree(63, 0.0);
+        retiree.pension_monthly_income = 1000.0;
+        let input = test_input(vec![retiree], 0.0);
+        let results = run_simulation(&input).unwrap();
+
+        let pre_retirement: Vec<_> = results.monthly_snapshot.iter()
+            .take_while(|s| s.date < results.retirement_date)
+            .collect();
+        assert!(pre_retirement.len() > 12);
+        for (i, snapshot) in pre_retirement.iter().enumerate() {
+            assert_eq!(snapshot.balance, 1_000_000.0 + 1000.0 * (i + 1) as f32);
+        }
+    }
+
+    #[test]
+    fn test_taxes_paid_from_surplus_income() {
+        // pension covers expenses and taxes, so nothing is withdrawn and the
+        // tax isn't grossed up
+        let mut retiree = test_retiree(60, 0.0);
+        retiree.pension_monthly_income = 5000.0;
+        let mut input = test_input(vec![retiree], 1000.0);
+        flat_tax(&mut input, 10.0);
+        let results = run_simulation(&input).unwrap();
+        let first = &results.monthly_snapshot[0];
+        assert!((first.taxes - 500.0).abs() < 0.01, "{}", first.taxes);
+        assert_eq!(first.withdrawal_rate, 0.0);
+        assert!((first.balance - (1_000_000.0 + 3500.0)).abs() < 0.5);
+    }
+
+    #[test]
+    fn test_taxes_on_withdrawals_are_grossed_up() {
+        // $1000 withdrawn for expenses, tax on $2000 is $200, and the $200
+        // withdrawn to pay it is taxed again: 200 / 0.9 = 222.22
+        let mut retiree = test_retiree(60, 0.0);
+        retiree.pension_monthly_income = 1000.0;
+        let mut input = test_input(vec![retiree], 2000.0);
+        flat_tax(&mut input, 10.0);
+        let results = run_simulation(&input).unwrap();
+        let first = &results.monthly_snapshot[0];
+        assert!((first.taxes - 222.22).abs() < 0.01, "{}", first.taxes);
+        assert!((first.balance - (1_000_000.0 - 1222.22)).abs() < 0.5);
+    }
+
+    // two retirees, both 60 and retired. The first has a pension and the
+    // larger social security benefit, and dies first.
+    fn survivor_input(first_life_expectency: u32) -> Input {
+        let mut first = test_retiree(60, 0.0);
+        first.life_expectency = first_life_expectency;
+        first.pension_monthly_income = 500.0;
+        first.social_security_age = 62;
+        first.social_security_amount_early = 2000.0;
+        let mut second = test_retiree(60, 0.0);
+        second.life_expectency = 66;
+        second.social_security_age = 62;
+        second.social_security_amount_early = 1000.0;
+        let mut input = test_input(vec![first, second], 5000.0);
+        input.expenses.survivor_percent = 50.0;
+        input
+    }
+
+    #[test]
+    fn test_survivor_gets_larger_social_security_benefit() {
+        let input = survivor_input(63);
+        let results = run_simulation(&input).unwrap();
+        let first = &results.retirees[0];
+
+        let both_collecting = results.monthly_snapshot.iter()
+            .find(|s| s.date > first.social_security_date)
+            .unwrap();
+        assert_eq!(both_collecting.income, 500.0 + 2000.0 + 1000.0);
+        assert_eq!(both_collecting.expenses, 5000.0);
+
+        // pension stops, survivor switches to the larger benefit, expenses drop
+        let survivor = results.monthly_snapshot.iter()
+            .find(|s| s.date >= first.death_date)
+            .unwrap();
+        assert_eq!(survivor.income, 2000.0);
+        assert_eq!(survivor.expenses, 2500.0);
+
+        // simulation runs until the survivor dies
+        let last = results.monthly_snapshot.last().unwrap();
+        assert!(last.date < results.retirees[1].death_date);
+        assert!(last.date >= first.death_date);
+    }
+
+    #[test]
+    fn test_no_survivor_benefit_if_deceased_never_collected() {
+        // first retiree dies at 62, before collecting social security
+        let input = survivor_input(61);
+        let results = run_simulation(&input).unwrap();
+        let survivor = results.monthly_snapshot.iter()
+            .find(|s| s.date > results.retirees[1].social_security_date)
+            .unwrap();
+        assert_eq!(survivor.income, 1000.0);
     }
 
     #[test]

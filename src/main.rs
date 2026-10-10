@@ -4,9 +4,7 @@
 * Parses config file and runs simulations.
 **************************************************************************/
 
-extern crate yaml_rust;
-extern crate chrono;
-use yaml_rust::{YamlLoader, YamlEmitter};
+use yaml_rust::YamlLoader;
 use chrono::{NaiveDate};
 use std::env;
 use std::fs;
@@ -48,6 +46,8 @@ struct Retiree {
 #[derive(Debug)]
 struct Expenses {
     monthly: f32,
+    // percentage of expenses that remain after one spouse dies
+    survivor_percent: f32,
 }
 
 // a tax bracket: income is the lower bound of taxable income (after the
@@ -81,15 +81,18 @@ fn parse_string(yaml: &yaml_rust::Yaml, field_name: &str) -> Result<String, Stri
 
 fn parse_u32(yaml: &yaml_rust::Yaml, field_name: &str) -> Result<u32, String> {
     let value = yaml[field_name].as_i64()
+        .and_then(|v| u32::try_from(v).ok())
         .ok_or("Invalid value: ".to_string() + field_name)?;
-    
-    Ok(value as u32)
+
+    Ok(value)
 }
-    
+
+// accepts both floating point (3140.0) and integer (3140) values
 fn parse_f32(yaml: &yaml_rust::Yaml, field_name: &str) -> Result<f32, String> {
     let value = yaml[field_name].as_f64()
+        .or_else(|| yaml[field_name].as_i64().map(|v| v as f64))
         .ok_or("Invalid value: ".to_string() + field_name)?;
-    
+
     Ok(value as f32)
 }
 
@@ -157,8 +160,17 @@ fn parse_expenses(input_yaml: &yaml_rust::Yaml) -> Result<Expenses, String> {
 
     let monthly = parse_f32(block, "monthly")?;
 
+    // optional: defaults to no change in expenses after a spouse dies
+    let survivor_percent = if block["survivor_percent"].is_badvalue() {
+        100.0
+    }
+    else {
+        parse_f32(block, "survivor_percent")?
+    };
+
     let expenses = Expenses {
         monthly,
+        survivor_percent,
     };
     
     Ok(expenses)
@@ -278,19 +290,49 @@ fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
     Ok(tax_rates)
 }
 
-fn parse_input_file(fname: &str) -> Result<Input, String> {
-    let file_str = fs::read_to_string(fname).unwrap();
-    
-    let docs = YamlLoader::load_from_str(&file_str).unwrap();
-    let doc = &docs[0];
-
-    // Dump the YAML object
-    let mut out_str = String::new();
-    {
-        let mut emitter = YamlEmitter::new(&mut out_str);
-        emitter.dump(doc).unwrap(); // dump the YAML object to a String
-        // println!("{out_str}");
+fn validate_allocation(allocation: &portfolio::Allocation, name: &str) -> Result<(), String> {
+    let values = [allocation.us_equities, allocation.international, allocation.bonds];
+    if values.iter().any(|&v| v < 0.0) {
+        return Err(format!("{name} percentages can't be negative"));
     }
+    let total: f32 = values.iter().sum();
+    if (total - 100.0).abs() > 0.01 {
+        return Err(format!("{name} must add up to 100.0 (currently {total})"));
+    }
+    Ok(())
+}
+
+fn validate_input(input: &Input) -> Result<(), String> {
+    if input.retirees.is_empty() {
+        return Err("at least one retiree is required".to_string());
+    }
+    let today = chrono::Utc::now().naive_utc().date();
+    if input.retirees.iter().all(|r| utils::get_age(&r.date_of_birth, &today) > r.life_expectency) {
+        return Err("every retiree is already past their life expectancy".to_string());
+    }
+
+    let portfolio = &input.portfolio;
+    validate_allocation(&portfolio.pre_retirement_allocation, "pre-retirement_allocation")?;
+    validate_allocation(&portfolio.post_retirement_allocation, "post-retirement_allocation")?;
+    let standard_deviations = [
+        portfolio.us_equity_standard_deviation,
+        portfolio.international_equity_standard_deviation,
+        portfolio.bonds_standard_deviation,
+    ];
+    if standard_deviations.iter().any(|&v| v < 0.0) {
+        return Err("standard deviations can't be negative".to_string());
+    }
+
+    if input.expenses.monthly < 0.0 || input.expenses.survivor_percent < 0.0 {
+        return Err("expenses can't be negative".to_string());
+    }
+
+    Ok(())
+}
+
+fn parse_input_str(file_str: &str) -> Result<Input, String> {
+    let docs = YamlLoader::load_from_str(file_str).map_err(|e| format!("Invalid YAML: {e}"))?;
+    let doc = docs.first().ok_or("input file is empty")?;
 
     let portfolio = parse_portfolio(&doc)?;
     let expenses = parse_expenses(&doc)?;
@@ -304,7 +346,13 @@ fn parse_input_file(fname: &str) -> Result<Input, String> {
         tax_rates,
     };
 
+    validate_input(&input)?;
     Ok(input)
+}
+
+fn parse_input_file(fname: &str) -> Result<Input, String> {
+    let file_str = fs::read_to_string(fname).map_err(|e| format!("Can't read {fname}: {e}"))?;
+    parse_input_str(&file_str)
         
 }
 
@@ -526,6 +574,55 @@ mod tests {
         let input = parse_input_file("input.yaml").unwrap();
         assert_eq!(input.tax_rates.tax_levels.len(), 7);
         assert_eq!(input.tax_rates.tax_levels[0].income, 0.0);
+        assert_eq!(input.expenses.survivor_percent, 100.0);
+    }
+
+    // sample input with one piece of text replaced
+    fn parse_modified_sample(from: &str, to: &str) -> Result<Input, String> {
+        let sample = fs::read_to_string("input.yaml").unwrap();
+        assert!(sample.contains(from), "sample input doesn't contain {from}");
+        parse_input_str(&sample.replacen(from, to, 1))
+    }
+
+    #[test]
+    fn test_parse_accepts_integer_amounts() {
+        let input = parse_modified_sample("balance: 1200000.0", "balance: 1200000").unwrap();
+        assert_eq!(input.portfolio.balance, 1200000.0);
+    }
+
+    #[test]
+    fn test_parse_rejects_negative_age() {
+        let err = parse_modified_sample("retirement_age: 67", "retirement_age: -67").unwrap_err();
+        assert!(err.contains("retirement_age"), "{err}");
+    }
+
+    #[test]
+    fn test_parse_rejects_allocation_not_100() {
+        let err = parse_modified_sample("us_equities: 56.0", "us_equities: 50.0").unwrap_err();
+        assert!(err.contains("add up to 100"), "{err}");
+    }
+
+    #[test]
+    fn test_parse_rejects_negative_standard_deviation() {
+        let err = parse_modified_sample("bonds_standard_deviation: 6.0", "bonds_standard_deviation: -6.0").unwrap_err();
+        assert!(err.contains("standard deviation"), "{err}");
+    }
+
+    #[test]
+    fn test_parse_survivor_percent() {
+        let input = parse_modified_sample("survivor_percent: 100.0", "survivor_percent: 70.0").unwrap();
+        assert_eq!(input.expenses.survivor_percent, 70.0);
+
+        // defaults to 100 when left out
+        let input = parse_modified_sample("survivor_percent: 100.0", "").unwrap();
+        assert_eq!(input.expenses.survivor_percent, 100.0);
+    }
+
+    #[test]
+    fn test_parse_errors_instead_of_panicking() {
+        assert!(parse_input_file("does-not-exist.yaml").unwrap_err().contains("Can't read"));
+        assert!(parse_input_str("").unwrap_err().contains("empty"));
+        assert!(parse_input_str("retirees: [").unwrap_err().contains("Invalid YAML"));
     }
 }
 
