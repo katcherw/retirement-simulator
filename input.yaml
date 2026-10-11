@@ -61,8 +61,9 @@ portfolio:
         bonds: 40.0                # percentage of portfolio in bonds
         international: 18.0        # percentage of portfolio in international stocks
     
-    # forecasted returns for each asset class in real dollars. values below
-    # are obtained from Fidelity. Used for monte carlo simulation.
+    # forecasted returns for each asset class in real dollars. Expected returns
+    # are geometric (compound annual) averages. values below are obtained from
+    # Fidelity. Used for the uniform and monte carlo simulations.
     us_equity_expected_returns: 3.2
     us_equity_standard_deviation: 15.0 
     international_equity_expected_returns: 4.1
