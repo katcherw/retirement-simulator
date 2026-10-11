@@ -76,9 +76,8 @@ of the retiree in the first block.
 | date_of_birth | Entered in mm/dd/yyyy. |
 | retirement_age | Age when this retiree's wages and contributions end. Withdrawals from investments to pay for expenses begin when the first retiree retires; until the other retiree retires, their salary (minus contributions) counts as income. |
 | life_expectency | Many experts recommend to plan to around 90 so you don't run out of money if all goes well. |
-| wage_annual_salary | This is your pre-retirement salary, used only for calculating your investment contributions |
+| wage_annual_salary | This is your pre-retirement salary. It is used to calculate your investment contributions, and as income while your spouse is retired and you are still working. |
 | retirement_contribution_percent | Percentage of salary that you're contributing to your retirement accounts. |
-| hsa_contribution_annual | Currently this isn't used, but will be included in the future. |
 | social_security_age | Age when you intend to take social security. You can try different ages to find best one to use. Note this doesn't need to be the retirement age. |
 | pension_age | Age when you start receiving your pension benefits |
 | pension_monthly_income | Monthly income from your pension |

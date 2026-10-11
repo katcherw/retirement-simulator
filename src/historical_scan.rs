@@ -5,9 +5,7 @@
 **************************************************************************/
 
 use crate::{scan, simulate, Input};
-use std::fs::File;
-use std::io::{self, BufRead};
-use std::path::Path;
+use std::io::BufRead;
 
 ///////////////////////////////////////////////////////////////////////////
 // Parse csv file with historical returns
@@ -89,10 +87,12 @@ fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturns
     averages
 }
 
+// returns.csv is built into the program, so it runs from any directory.
+// Rebuild after changing the file.
+const RETURNS_CSV: &str = include_str!("../returns.csv");
+
 fn parse_returns() -> Result<HistoricalReturns, String> {
-    let fname = Path::new("returns.csv");
-    let file = File::open(fname).map_err(|_| "Can't open returns.csv")?;
-    parse_returns_from(io::BufReader::new(file))
+    parse_returns_from(RETURNS_CSV.as_bytes())
 }
 
 // columns: year, 7 nominal returns, inflation, then real returns for
