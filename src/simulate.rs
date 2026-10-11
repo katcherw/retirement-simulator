@@ -5,7 +5,6 @@
 **************************************************************************/
 
 use crate::{Input, TaxLevel};
-use chrono;
 use chrono::NaiveDate;
 use crate::utils::*;
 use crate::portfolio::Portfolio;
@@ -82,22 +81,22 @@ fn get_social_security_monthly_income(
     let max_age = 70;
     
     if retirement_age >= max_age {
-        return benefit_delayed;
+        benefit_delayed
     }
     else if retirement_age < min_age {
-        return 0.0;
+        0.0
     }
     else if retirement_age >= normal_age {
-        return benefit_full +
+        benefit_full +
             (benefit_delayed - benefit_full) *
             (retirement_age - normal_age) as f32/
-            (max_age - normal_age) as f32;
+            (max_age - normal_age) as f32
     }
     else {
-        return benefit_early +
+        benefit_early +
             (benefit_full - benefit_early) *
             (retirement_age - min_age) as f32 /
-            (normal_age - min_age) as f32;
+            (normal_age - min_age) as f32
     }
 }
 
@@ -135,7 +134,7 @@ impl<'a> Simulation<'a> {
                 retirement_date: add_years(&retiree.date_of_birth, retiree.retirement_age),
                 death_date: add_years(&retiree.date_of_birth, retiree.life_expectency + 1),
                 social_security_date: add_years(&retiree.date_of_birth, retiree.social_security_age),
-                date_of_birth: retiree.date_of_birth.clone(),
+                date_of_birth: retiree.date_of_birth,
                 social_security_income: get_social_security_monthly_income(
                     retiree.social_security_age,
                     retiree.social_security_amount_early,
@@ -145,7 +144,7 @@ impl<'a> Simulation<'a> {
             simulation_results.retirees.push(retiree_result);
         }
 
-        let portfolio = input.portfolio.clone();
+        let portfolio = input.portfolio;
         let expenses = input.expenses.monthly;
 
         Self {

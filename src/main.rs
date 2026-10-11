@@ -136,13 +136,13 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
     if pre_retirement_block.is_badvalue() {
         return Err("pre-retirement portfolio block missing".to_string());
     }
-    let pre_retirement_allocation = parse_allocation(&pre_retirement_block)?;
+    let pre_retirement_allocation = parse_allocation(pre_retirement_block)?;
 
     let post_retirement_block = &block["post-retirement_allocation"];
     if post_retirement_block.is_badvalue() {
         return Err("post-retirement portfolio block missing".to_string());
     }
-    let post_retirement_allocation = parse_allocation(&post_retirement_block)?;
+    let post_retirement_allocation = parse_allocation(post_retirement_block)?;
 
     let us_equity_expected_returns = parse_f32(block, "us_equity_expected_returns")?;
     let us_equity_standard_deviation = parse_f32(block, "us_equity_standard_deviation")?;
@@ -367,10 +367,10 @@ fn parse_input_str(file_str: &str) -> Result<Input, String> {
     let docs = YamlLoader::load_from_str(file_str).map_err(|e| format!("Invalid YAML: {e}"))?;
     let doc = docs.first().ok_or("input file is empty")?;
 
-    let portfolio = parse_portfolio(&doc)?;
-    let expenses = parse_expenses(&doc)?;
-    let retirees = parse_retirees(&doc)?;
-    let tax_rates = parse_tax_rates(&doc)?;
+    let portfolio = parse_portfolio(doc)?;
+    let expenses = parse_expenses(doc)?;
+    let retirees = parse_retirees(doc)?;
+    let tax_rates = parse_tax_rates(doc)?;
 
     let input = Input {
         retirees,
@@ -414,7 +414,7 @@ fn format_table(table: Vec<Vec<String>>) -> String {
         for (i, cell) in row.iter().enumerate() {
             str.push_str(&format!("{:>width$} ", cell, width = col_size[i]));
         }
-        str.push_str("\n");
+        str.push('\n');
     } 
 
     str
@@ -474,7 +474,7 @@ fn print_simulation_results(simulation_results: &simulate::SimulationResults) {
 ///////////////////////////////////////////////////////////////////////////
 
 fn run_scan<S: scan::Scannable>(input: &Input, scanner: &mut S) -> Result<scan::ScanResults, String> {
-    let results = scanner.run_scan(&input)?; 
+    let results = scanner.run_scan(input)?; 
         
     println!("Successful runs: {} of {} ({:.1}%)", results.num_successful,
              results.num_simulations,

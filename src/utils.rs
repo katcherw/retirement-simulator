@@ -17,10 +17,7 @@ pub fn get_monthly_rate(annual_rate: f32) -> f32 {
 
 pub fn get_age(date_of_birth: &NaiveDate, current_date: &NaiveDate) -> u32 {
     let years_diff = current_date.years_since(*date_of_birth);
-    match years_diff {
-        Some(v) => v,
-        None => 0,
-    }
+    years_diff.unwrap_or_default()
 }
 
 // adds whole calendar years, so the result falls on the same month and day

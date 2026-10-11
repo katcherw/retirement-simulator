@@ -43,17 +43,14 @@ fn str_to_f32(s: &str) -> Result<f32, String> {
 }
 
 fn str_to_f32_optional(s: &str) -> Option<f32> {
-    match s.trim().parse::<f32>() {
-        Ok(v) => Some(v),
-        Err(_) => None,
-    }
+    s.trim().parse::<f32>().ok()
 }
 
 fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturnsOneYear {
     let mut totals = HistoricalReturnsOneYear::default();
-    totals.international = Some(0.0);
+    let mut international_total = 0.0;
     let mut international_count = 0.0;
-    
+
     for ret in returns.iter() {
         totals.inflation += ret.inflation;
         totals.sp500return += ret.sp500return;
@@ -62,9 +59,8 @@ fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturns
         totals.corp_bonds += ret.corp_bonds;
         totals.real_estate += ret.real_estate;
         totals.gold += ret.gold;
-        if ret.international.is_some() {
-            totals.international = Some(totals.international.unwrap() +
-                ret.international.unwrap());
+        if let Some(international) = ret.international {
+            international_total += international;
             international_count += 1.0;
         }
     };
@@ -80,7 +76,7 @@ fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturns
         averages.real_estate = totals.real_estate / count;
         averages.gold = totals.gold / count;
         averages.international = Some(if international_count > 0.0
-            { totals.international.unwrap() / international_count } else { 0.0 });
+            { international_total / international_count } else { 0.0 });
     };
 
     averages    
@@ -102,7 +98,7 @@ fn parse_returns_from<R: BufRead>(reader: R) -> Result<HistoricalReturns, String
         if i < 2 {
             continue;
         }
-        let line = line.map_err(|v| format!("Can't read line from returns.csv: {}", v.to_string()))?;
+        let line = line.map_err(|v| format!("Can't read line from returns.csv: {}", v))?;
         let toks: Vec<&str> = line.split(',').collect();
         if toks.len() < 16 {
             return Err(format!("Can't parse line [{}]", line));
