@@ -245,11 +245,7 @@ fn parse_retirees(input_yaml: &yaml_rust::Yaml) -> Result<Vec<Retiree>, String> 
 
     let vec = block.as_vec().ok_or("no retirees found")?;
     for element in vec {
-        let retiree = parse_retiree(element);
-        match retiree {
-            Ok(v) => retirees.push(v),
-            Err(e) => return Err(e),
-        };
+        retirees.push(parse_retiree(element)?);
     }
 
     Ok(retirees)
