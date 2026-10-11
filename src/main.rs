@@ -159,6 +159,9 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
         parse_f32(block, "international_equity_standard_deviation")?;
     let bonds_expected_returns = parse_f32(block, "bonds_expected_returns")?;
     let bonds_standard_deviation = parse_f32(block, "bonds_standard_deviation")?;
+    let us_international_correlation = parse_f32(block, "us_international_correlation")?;
+    let us_bonds_correlation = parse_f32(block, "us_bonds_correlation")?;
+    let international_bonds_correlation = parse_f32(block, "international_bonds_correlation")?;
 
     let portfolio = Portfolio {
         balance,
@@ -170,6 +173,9 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
         international_equity_standard_deviation,
         bonds_expected_returns,
         bonds_standard_deviation,
+        us_international_correlation,
+        us_bonds_correlation,
+        international_bonds_correlation,
     };
 
     Ok(portfolio)
@@ -182,13 +188,7 @@ fn parse_expenses(input_yaml: &yaml_rust::Yaml) -> Result<Expenses, String> {
     }
 
     let monthly = parse_f32(block, "monthly")?;
-
-    // optional: defaults to no change in expenses after a spouse dies
-    let survivor_percent = if block["survivor_percent"].is_badvalue() {
-        100.0
-    } else {
-        parse_f32(block, "survivor_percent")?
-    };
+    let survivor_percent = parse_f32(block, "survivor_percent")?;
 
     let expenses = Expenses {
         monthly,
@@ -384,6 +384,7 @@ fn validate_input(input: &Input) -> Result<(), String> {
     if standard_deviations.iter().any(|&v| v < 0.0) {
         return Err("standard deviations can't be negative".to_string());
     }
+    monte_carlo::ReturnsSampler::new(portfolio)?;
 
     if input.expenses.monthly < 0.0 || input.expenses.survivor_percent < 0.0 {
         return Err("expenses can't be negative".to_string());
@@ -743,6 +744,43 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_correlations() {
+        let input = parse_modified_sample(
+            "us_international_correlation: 0.8",
+            "us_international_correlation: 0.7",
+        )
+        .unwrap();
+        assert_eq!(input.portfolio.us_international_correlation, 0.7);
+        assert_eq!(input.portfolio.us_bonds_correlation, 0.3);
+        assert_eq!(input.portfolio.international_bonds_correlation, 0.3);
+    }
+
+    #[test]
+    fn test_parse_requires_each_correlation() {
+        let sample = fs::read_to_string("input.yaml").unwrap();
+        for name in [
+            "us_international_correlation",
+            "us_bonds_correlation",
+            "international_bonds_correlation",
+        ] {
+            let without: String = sample
+                .lines()
+                .filter(|line| !line.contains(&format!("{name}:")))
+                .map(|line| format!("{line}\n"))
+                .collect();
+            let err = parse_input_str(&without).unwrap_err();
+            assert!(err.contains(name), "{err}");
+        }
+    }
+
+    #[test]
+    fn test_parse_rejects_inconsistent_correlations() {
+        let err = parse_modified_sample("us_bonds_correlation: 0.3", "us_bonds_correlation: -0.9")
+            .unwrap_err();
+        assert!(err.contains("inconsistent"), "{err}");
+    }
+
+    #[test]
     fn test_parse_rejects_negative_standard_deviation() {
         let err = parse_modified_sample(
             "bonds_standard_deviation: 6.0",
@@ -758,9 +796,9 @@ mod tests {
             parse_modified_sample("survivor_percent: 100.0", "survivor_percent: 70.0").unwrap();
         assert_eq!(input.expenses.survivor_percent, 70.0);
 
-        // defaults to 100 when left out
-        let input = parse_modified_sample("survivor_percent: 100.0", "").unwrap();
-        assert_eq!(input.expenses.survivor_percent, 100.0);
+        // required
+        let err = parse_modified_sample("survivor_percent: 100.0", "").unwrap_err();
+        assert!(err.contains("survivor_percent"), "{err}");
     }
 
     #[test]

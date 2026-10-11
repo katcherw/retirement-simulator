@@ -70,9 +70,15 @@ portfolio:
     bonds_expected_returns: 2.5
     bonds_standard_deviation: 6.0
 
+    # correlation of annual returns between asset classes (-1.0 to 1.0). Used
+    # for monte carlo simulation.
+    us_international_correlation: 0.8
+    us_bonds_correlation: 0.3
+    international_bonds_correlation: 0.3
+
 expenses:
     monthly: 9000.0     # estimated monthly expenses during retirment in today's dollars
-    survivor_percent: 100.0   # percentage of expenses remaining after a spouse dies (optional)
+    survivor_percent: 100.0   # percentage of expenses remaining after a spouse dies
 
 # 2026 tax rates from the IRS. Married filing jointly rates are used while
 # both retirees are alive; single rates are used for a single retiree or a
