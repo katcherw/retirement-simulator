@@ -109,7 +109,6 @@ pub struct Simulation<'a> {
     current_date_: NaiveDate,
     portfolio_: Portfolio,
     expenses_: f32,
-    tax_rates_: Vec<TaxLevel>,
     sum_of_returns_: f32,
 }
     
@@ -148,7 +147,6 @@ impl<'a> Simulation<'a> {
 
         let portfolio = input.portfolio.clone();
         let expenses = input.expenses.monthly;
-        let tax_rates = input.tax_rates.tax_levels.to_vec();
 
         Self {
             simulation_results_: simulation_results,
@@ -156,7 +154,6 @@ impl<'a> Simulation<'a> {
             current_date_: current_date,
             portfolio_: portfolio,
             expenses_: expenses,
-            tax_rates_: tax_rates,
             sum_of_returns_: 0.0,
         }
     }
@@ -244,10 +241,12 @@ impl<'a> Simulation<'a> {
         let withdrawals = f32::max(expenses - income, 0.0);
 
         // tax on income and withdrawals. tax rate on ss will be higher, but ignore that for now
+        let num_alive = alive.iter().filter(|&&a| a).count();
+        let tax_table = self.input_.tax_rates.table_for(num_alive);
         let (base_taxes, tax_rate) = get_taxes(
             withdrawals + taxable_income,
-            self.input_.tax_rates.standard_deduction,
-            &self.tax_rates_);
+            tax_table.standard_deduction,
+            &tax_table.tax_levels);
 
         // taxes are paid first from any income left over after expenses. The
         // rest must be withdrawn, but these withdrawals cost more taxes,
@@ -439,15 +438,45 @@ mod tests {
             },
             expenses: crate::Expenses { monthly: monthly_expenses, survivor_percent: 100.0 },
             tax_rates: crate::TaxRates {
-                standard_deduction: 1.0e9,
-                tax_levels: vec![TaxLevel { income: 0.0, rate: 0.0 }],
+                married_filing_jointly: flat_tax_table(1.0e9, 0.0),
+                single: flat_tax_table(1.0e9, 0.0),
             },
         }
     }
 
+    fn flat_tax_table(standard_deduction: f32, rate: f32) -> crate::TaxTable {
+        crate::TaxTable { standard_deduction, tax_levels: vec![TaxLevel { income: 0.0, rate }] }
+    }
+
+    // flat tax with no standard deduction, the same for every filing status
     fn flat_tax(input: &mut Input, rate: f32) {
-        input.tax_rates.standard_deduction = 0.0;
-        input.tax_rates.tax_levels = vec![TaxLevel { income: 0.0, rate }];
+        input.tax_rates.married_filing_jointly = flat_tax_table(0.0, rate);
+        input.tax_rates.single = flat_tax_table(0.0, rate);
+    }
+
+    #[test]
+    fn test_single_retiree_uses_single_rates() {
+        let mut retiree = test_retiree(60, 0.0);
+        retiree.pension_monthly_income = 1000.0;
+        let mut input = test_input(vec![retiree], 0.0);
+        input.tax_rates.married_filing_jointly = flat_tax_table(0.0, 10.0);
+        input.tax_rates.single = flat_tax_table(0.0, 20.0);
+        let results = run_simulation(&input).unwrap();
+        let first = &results.monthly_snapshot[0];
+        assert_eq!(first.tax_rate, 20.0);
+        assert!((first.taxes - 200.0).abs() < 0.01, "{}", first.taxes);
+    }
+
+    #[test]
+    fn test_survivor_switches_to_single_rates() {
+        let mut input = survivor_input(63);
+        input.tax_rates.married_filing_jointly = flat_tax_table(0.0, 10.0);
+        input.tax_rates.single = flat_tax_table(0.0, 20.0);
+        let results = run_simulation(&input).unwrap();
+        let death_date = results.retirees[0].death_date;
+        assert_eq!(results.monthly_snapshot[0].tax_rate, 10.0);
+        let survivor = results.monthly_snapshot.iter().find(|s| s.date >= death_date).unwrap();
+        assert_eq!(survivor.tax_rate, 20.0);
     }
 
     #[test]

@@ -3,24 +3,25 @@
 This project is a CLI Retirement Simulator built in Rust to model investments,
 income, and expenses and simulate the chances for a successful retirement.
 
-There are tons of high quality simulators, why another one? Good
-question. Unlike the many good simulators available, this one is free!
-Simulators that I've found so far are either too simplistic (like the free ones
-available at most brokerages) or hide the assumptions they are making. Either that
-or the more full-featured ones require a monthly or annual fee.
+There are tons of high quality simulators, why another one? Good question.
+Unlike the many good simulators available, this one is free! Simulators that
+I've found so far are either too simplistic (like the free ones available at
+most brokerages) or hide the assumptions they are making. Either that or the
+more full-featured ones require a monthly or annual fee.
 
-This application allows me to truly understand the assumptions and the calculations. 
+This application allows me to truly understand the assumptions and the
+calculations.
 
-The other reason is as a CLI program, the simulation values can be entered
-and stored locally without your sensitive financial information going to 
-somebody else's server.
+The other reason is as a CLI program, the simulation values can be entered and
+stored locally without your sensitive financial information going to somebody
+else's server.
 
 ## Features
 
 Runs 3 types of simulations:
 
 * Uniform Returns. This assumes the same invesment returns every year and shows
-  the cashflow throughout your lifetime. 
+  the cashflow throughout your lifetime.
 * Historical Returns. This will simulate what will happen if you retire at each
   year in history and will calculate the percentage of successful returns. Since
   historical returns were higher than the future forecasts, this could be
@@ -33,27 +34,30 @@ It is quick and easy to try different what-ifs.
 
 ## Building and Running
 
-All you need is a Rust development environment installed. To run, simply execute:
+All you need is a Rust development environment installed. To run, simply
+execute:
 
 ```
 cargo run input.yaml
 ```
 
-The configuration is entered in input.yaml. A template is included in the
-root directory of this project.
+The configuration is entered in input.yaml. A template is included in the root
+directory of this project.
 
 ## Configuration Values
 
 A sample configuration file is found in input.yaml.
 
 All dollar amounts are in today's dollars. Dollar amounts and percentages may be
-entered with or without a decimal (e.g. 3140.00 or 3140). Ages must be whole numbers.
+entered with or without a decimal (e.g. 3140.00 or 3140). Ages must be whole
+numbers.
 
 ### Retirees
 
-The retirees section contains blocks for either one or two retirees depending whether the simulation is
-for a single person or married couple. For a single person, simply delete one of the blocks. The age
-shown in the output is the age of the retiree in the first block.
+The retirees section contains blocks for either one or two retirees depending
+whether the simulation is for a single person or married couple. For a single
+person, simply delete one of the blocks. The age shown in the output is the age
+of the retiree in the first block.
 
 | Value | Description |
 | --- | --- |
@@ -102,9 +106,9 @@ add up to exactly 100.0.
 
 The next group of values is the expected returns and expected standard deviation
 of returns. The sample file contains forecasted longterm returns published by
-Fidelity Investments. You may change these as you like. All expected returns
-are real returns as opposed to nominal returns. In other words, the returns are
-the actual returns minus inflation.
+Fidelity Investments. You may change these as you like. All expected returns are
+real returns as opposed to nominal returns. In other words, the returns are the
+actual returns minus inflation.
 
 ### Expenses
 
@@ -119,23 +123,32 @@ taxes, retirement contributions, benefits, etc.).
 
 ### Tax Rates
 
-This section contains the IRS tax rates and standard deduction. The sample file contains the latest values for married
-couples filing jointly. You can change this for singles or values from future years.
+This section contains the IRS tax rates and standard deduction for two filing
+statuses, `married_filing_jointly` and `single`. The sample file contains the
+2026 values; you can update them for future years. Both blocks are required.
 
-Each entry in `levels` is one tax bracket: `income` is the taxable income (after the standard
-deduction) where the bracket starts, and `rate` is the percentage applied to income within that
-bracket. The first level must start at `0.0`, and the last level applies to all income above it.
+The married filing jointly table is used while two retirees are alive. The
+single table is used for a single retiree, and for the surviving spouse after
+one retiree dies.
+
+Each block has a `standard_deduction` and a list of `levels`. Each entry in
+`levels` is one tax bracket: `income` is the taxable income (after the standard
+deduction) where the bracket starts, and `rate` is the percentage applied to
+income within that bracket. The first level must start at `0.0`, and the last
+level applies to all income above it.
 
 ## Output
 
-There are 3 sections of the output: Uniform returns, Historical returns, and Monte Carlo simulation.
+There are 3 sections of the output: Uniform returns, Historical returns, and
+Monte Carlo simulation.
 
 All output is in today's dollars.
 
 ### Uniform Returns
 
 This simulation assumes that the returns for each asset class match the expected
-returns in the input file every year (effectively setting the standard deviation to 0).
+returns in the input file every year (effectively setting the standard deviation
+to 0).
 
 The output is a table with the following columns:
 
@@ -154,90 +167,97 @@ The output is a table with the following columns:
 ### Historical Simulation
 
 This simulation uses historical investment data to simulate starting a
-retirement at any time in history. First it simulates a retirement starting
-in 1928. Then it simulates starting in 1929. And so on. If it runs out of years
-to simulate, it starts again in 1928. For example, if the data is available for
+retirement at any time in history. First it simulates a retirement starting in
+1928. Then it simulates starting in 1929. And so on. If it runs out of years to
+simulate, it starts again in 1928. For example, if the data is available for
 1928 to 2023 and the simulation starts in 2022, the simulations first year of
 retirement will be 2022, next 2023, next 1928, next 1929, etc.
 
 The output will print the percentage of years that were successful, i.e. the
-number of years where the balance didn't go to 0 at any point. 
+number of years where the balance didn't go to 0 at any point.
 
 The simulation results are then sorted from worst to best results and printed.
 
 ### Monte Carlo Simulation
 
-The Monte Carlo simulation takes the expected returns and standard deviations
-in the input, and simulates each year with a random value. That random value
-will be chosen from a normal distribution with the mean and standard deviation 
-from the input file. 1000 such simulations will be performed.
+The Monte Carlo simulation takes the expected returns and standard deviations in
+the input, and simulates each year with a random value. That random value will
+be chosen from a normal distribution with the mean and standard deviation from
+the input file. 1000 such simulations will be performed.
 
 The output is the percentage of successful simulations. The worst year's result
 will be printed in a format the same as the Uniform Simulation.
 
 ## About the Simulation
 
-**Inflation.** All input and output is in terms of today's dollars and real returns. This makes
-it easier to interpret the output of future years. For example, if your monthly expenses in 30 years
-are $20K, is that high or low? It is hard to interpret amounts that far in the future because of the
-compounding of inflation. Instead, the effect of inflation is accounted for by the lower returns
-of investments. It is assumed that social security, pensions, and other income are adjusted 
-for inflation annually. 
+**Inflation.** All input and output is in terms of today's dollars and real
+returns. This makes it easier to interpret the output of future years. For
+example, if your monthly expenses in 30 years are $20K, is that high or low? It
+is hard to interpret amounts that far in the future because of the compounding
+of inflation. Instead, the effect of inflation is accounted for by the lower
+returns of investments. It is assumed that social security, pensions, and other
+income are adjusted for inflation annually.
 
 **Rebalancing.** It is assumed that the portfolio is rebalanced continuously.
 
-**Which simulation do I use?** This is up to you. The uniform simulation is unrealistic
-but give some insight into your retirement plan. The historical returns can be considered
-what other retirement planners call an "optimistic result" because historical returns
-have been high compared to what the forecasts are like. Aiming for a 100% success rate
-may be a good idea. The default values for the Monte Carlo results are from Fidelity 
-Investment's published forecasts, and are pretty dismal compared to historical returns.
-Other investment firms also are forecasting low returns. Therefore, these may correspond
-to a "pessimistic result". Most planning software recommends a success ratio around
+**Which simulation do I use?** This is up to you. The uniform simulation is
+unrealistic but give some insight into your retirement plan. The historical
+returns can be considered what other retirement planners call an "optimistic
+result" because historical returns have been high compared to what the forecasts
+are like. Aiming for a 100% success rate may be a good idea. The default values
+for the Monte Carlo results are from Fidelity Investment's published forecasts,
+and are pretty dismal compared to historical returns. Other investment firms
+also are forecasting low returns. Therefore, these may correspond to a
+"pessimistic result". Most planning software recommends a success ratio around
 85% to 90% to be a good plan.
 
-**Why only 3 asset classes?** This application only models US stocks, international
-stocks, and bonds. There's lots of other asset classes out there: small caps, emerging
-markets, REITS, long-term bonds, short-term bonds, TIPS, gold, bitcoin, etc. But the
-goal here is not to be a portfolio optimizer but a rough estimate of a retirement plan.
-The expected returns are already so speculative that fine tuning the granularity seems
-like overkill. The strategy here is to model some rough parameters, and then try 
-to optimize the portfolio outside of that. Fine tuning the asset mix is unlikely to 
-affect the outcome enough to change the overall plan.
+**Why only 3 asset classes?** This application only models US stocks,
+international stocks, and bonds. There's lots of other asset classes out there:
+small caps, emerging markets, REITS, long-term bonds, short-term bonds, TIPS,
+gold, bitcoin, etc. But the goal here is not to be a portfolio optimizer but a
+rough estimate of a retirement plan. The expected returns are already so
+speculative that fine tuning the granularity seems like overkill. The strategy
+here is to model some rough parameters, and then try to optimize the portfolio
+outside of that. Fine tuning the asset mix is unlikely to affect the outcome
+enough to change the overall plan.
 
 ## Limitations
 
-The goal of this application is to get an idea of the big picture of a retirement plan.
-There is so much unceratainty about future returns and expenses that it is futile to 
-try to focus on the small details. In that spirit, this application simplified some assumptions.
-However, as the application evolves, these limitations may be removed in the future.
+The goal of this application is to get an idea of the big picture of a
+retirement plan. There is so much unceratainty about future returns and expenses
+that it is futile to try to focus on the small details. In that spirit, this
+application simplified some assumptions. However, as the application evolves,
+these limitations may be removed in the future.
 
-**Social security income.** There is no formula to calculate social security benefits. The
-Social Security Administration publishes tables to look up the income based on the earnings
-history and the age of the retiree. Instead of reproducing this table in code, this application
-simply makes an estimate based on the values reported by the Social Security web site. These
-values include estimated benefits at ages 62, 67, and 70 (for later retirees). Ages in between
+**Social security income.** There is no formula to calculate social security
+benefits. The Social Security Administration publishes tables to look up the
+income based on the earnings history and the age of the retiree. Instead of
+reproducing this table in code, this application simply makes an estimate based
+on the values reported by the Social Security web site. These values include
+estimated benefits at ages 62, 67, and 70 (for later retirees). Ages in between
 are simply interpolated (averaged) between the reported values.
 
 **Income tax.** This can get very complicated. Social Security is taxed either
 at 50% or 85%, depending on total income. This application simply assumes social
 security is taxed at 85%. It also assumes all other income (including what is
-withdrawn from the retirement accounts) is taxed at the normal income tax
-rate. Besides the standard deduction, we don't make any other adjustments to
-income or allow for itemization.  State taxes are ignored. We do estimate the
-taxes needed to pay for the withdrawals from the retirement accounts and add that
-to the withdrawal. Payroll taxes on wages are ignored, and the same tax brackets
-are used after a spouse dies (a survivor would normally file as single).
+withdrawn from the retirement accounts) is taxed at the normal income tax rate.
+Besides the standard deduction, we don't make any other adjustments to income or
+allow for itemization.  State taxes are ignored. We do estimate the taxes needed
+to pay for the withdrawals from the retirement accounts and add that to the
+withdrawal. Payroll taxes on wages are ignored. The additional standard
+deduction for people 65 and older is not included. A survivor switches to single
+rates immediately, although in practice they can file jointly for the year of
+death.
 
-**Death of a spouse.** When a retiree reaches their life expectancy, their wages,
-pension, and other income stop. The survivor receives the larger of their own
-social security benefit and the deceased's benefit, if the deceased had started
-collecting it. Pension survivor benefits are not modelled, and the survivor
-benefit starts immediately regardless of the survivor's age.
+**Death of a spouse.** When a retiree reaches their life expectancy, their
+wages, pension, and other income stop. The survivor receives the larger of their
+own social security benefit and the deceased's benefit, if the deceased had
+started collecting it. Pension survivor benefits are not modelled, and the
+survivor benefit starts immediately regardless of the survivor's age.
 
 ## Disclaimer
 
-I am not a financial advisor and this application is only a tool for you to use that
-may or may not be helpful or accurate. Consult a licensed financial advisor before
-making any financial decisions.
+I am not a financial advisor and this application is only a tool for you to use
+that may or may not be helpful or accurate. Consult a licensed financial advisor
+before making any financial decisions.
 
