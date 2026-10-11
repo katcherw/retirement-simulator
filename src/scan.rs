@@ -1,10 +1,10 @@
 /**************************************************************************
 * scan.rs
 *
-* Common functions and traits for scanning a series of simulations 
+* Common functions and traits for scanning a series of simulations
 **************************************************************************/
 
-use crate::{Input, simulate};
+use crate::{simulate, Input};
 
 // A scenario is a particular simulation (one retirement cycle) in a scan.
 #[derive(Debug)]
@@ -21,7 +21,7 @@ struct ScenarioSortingInfo {
     num_months: usize,
     ending_balance: f32,
 }
-    
+
 // The results of all the scenarios in the scan
 #[derive(Debug)]
 pub struct ScanResults {
@@ -48,12 +48,17 @@ impl ScanResults {
     }
 
     pub fn add_sorting_info(&mut self, index: usize, num_months: usize, ending_balance: f32) {
-        self.sorting_info.push(ScenarioSortingInfo{index, num_months, ending_balance});
+        self.sorting_info.push(ScenarioSortingInfo {
+            index,
+            num_months,
+            ending_balance,
+        });
     }
-                                                   
+
     pub fn sort_results(&mut self) {
         self.sorting_info.sort_by(|a, b| {
-            a.num_months.cmp(&b.num_months)
+            a.num_months
+                .cmp(&b.num_months)
                 .then_with(|| a.ending_balance.partial_cmp(&b.ending_balance).unwrap())
         });
 
@@ -61,7 +66,6 @@ impl ScanResults {
             self.sorted_indices.push(v.index);
         }
     }
-        
 }
 
 pub trait Scannable {

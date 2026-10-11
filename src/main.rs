@@ -4,23 +4,23 @@
 * Parses config file and runs simulations.
 **************************************************************************/
 
-use yaml_rust::YamlLoader;
-use chrono::{NaiveDate};
+use chrono::NaiveDate;
+use num_format::{Locale, ToFormattedString};
 use std::env;
 use std::fs;
 use std::process;
-use num_format::{Locale, ToFormattedString};
+use yaml_rust::YamlLoader;
 
 use crate::historical_scan::HistoricalScan;
 use crate::monte_carlo::MonteCarloScan;
 use crate::portfolio::Portfolio;
 
-mod simulate;
-mod scan;
 mod historical_scan;
 mod monte_carlo;
-mod utils;
 mod portfolio;
+mod scan;
+mod simulate;
+mod utils;
 
 ///////////////////////////////////////////////////////////////////////////
 // Parsing input
@@ -42,7 +42,7 @@ struct Retiree {
     social_security_amount_full: f32,
     social_security_amount_delayed: f32,
 }
-    
+
 #[derive(Debug)]
 struct Expenses {
     monthly: f32,
@@ -57,7 +57,7 @@ pub struct TaxLevel {
     income: f32,
     rate: f32,
 }
-    
+
 // tax brackets and standard deduction for one filing status
 #[derive(Debug)]
 pub struct TaxTable {
@@ -74,7 +74,11 @@ pub struct TaxRates {
 impl TaxRates {
     // married filing jointly while two retirees are alive, otherwise single
     pub fn table_for(&self, num_alive: usize) -> &TaxTable {
-        if num_alive >= 2 {&self.married_filing_jointly} else {&self.single}
+        if num_alive >= 2 {
+            &self.married_filing_jointly
+        } else {
+            &self.single
+        }
     }
 }
 
@@ -87,14 +91,16 @@ struct Input {
 }
 
 fn parse_string(yaml: &yaml_rust::Yaml, field_name: &str) -> Result<String, String> {
-    let value = yaml[field_name].as_str()
+    let value = yaml[field_name]
+        .as_str()
         .ok_or("Invalid value: ".to_string() + field_name)?;
-    
+
     Ok(value.to_string())
 }
 
 fn parse_u32(yaml: &yaml_rust::Yaml, field_name: &str) -> Result<u32, String> {
-    let value = yaml[field_name].as_i64()
+    let value = yaml[field_name]
+        .as_i64()
         .and_then(|v| u32::try_from(v).ok())
         .ok_or("Invalid value: ".to_string() + field_name)?;
 
@@ -103,7 +109,8 @@ fn parse_u32(yaml: &yaml_rust::Yaml, field_name: &str) -> Result<u32, String> {
 
 // accepts both floating point (3140.0) and integer (3140) values
 fn parse_f32(yaml: &yaml_rust::Yaml, field_name: &str) -> Result<f32, String> {
-    let value = yaml[field_name].as_f64()
+    let value = yaml[field_name]
+        .as_f64()
         .or_else(|| yaml[field_name].as_i64().map(|v| v as f64))
         .ok_or("Invalid value: ".to_string() + field_name)?;
 
@@ -123,7 +130,7 @@ fn parse_allocation(input_yaml: &yaml_rust::Yaml) -> Result<portfolio::Allocatio
 
     Ok(allocation)
 }
-    
+
 fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
     let block = &input_yaml["portfolio"];
     if block.is_badvalue() {
@@ -131,7 +138,7 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
     }
 
     let balance = parse_f32(block, "balance")?;
-    
+
     let pre_retirement_block = &block["pre-retirement_allocation"];
     if pre_retirement_block.is_badvalue() {
         return Err("pre-retirement portfolio block missing".to_string());
@@ -146,8 +153,10 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
 
     let us_equity_expected_returns = parse_f32(block, "us_equity_expected_returns")?;
     let us_equity_standard_deviation = parse_f32(block, "us_equity_standard_deviation")?;
-    let international_equity_expected_returns = parse_f32(block, "international_equity_expected_returns")?;
-    let international_equity_standard_deviation = parse_f32(block, "international_equity_standard_deviation")?;
+    let international_equity_expected_returns =
+        parse_f32(block, "international_equity_expected_returns")?;
+    let international_equity_standard_deviation =
+        parse_f32(block, "international_equity_standard_deviation")?;
     let bonds_expected_returns = parse_f32(block, "bonds_expected_returns")?;
     let bonds_standard_deviation = parse_f32(block, "bonds_standard_deviation")?;
 
@@ -162,7 +171,7 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
         bonds_expected_returns,
         bonds_standard_deviation,
     };
-    
+
     Ok(portfolio)
 }
 
@@ -177,8 +186,7 @@ fn parse_expenses(input_yaml: &yaml_rust::Yaml) -> Result<Expenses, String> {
     // optional: defaults to no change in expenses after a spouse dies
     let survivor_percent = if block["survivor_percent"].is_badvalue() {
         100.0
-    }
-    else {
+    } else {
         parse_f32(block, "survivor_percent")?
     };
 
@@ -186,7 +194,7 @@ fn parse_expenses(input_yaml: &yaml_rust::Yaml) -> Result<Expenses, String> {
         monthly,
         survivor_percent,
     };
-    
+
     Ok(expenses)
 }
 
@@ -206,8 +214,9 @@ fn parse_retiree(input_yaml: &yaml_rust::Yaml) -> Result<Retiree, String> {
     let social_security_amount_delayed = parse_f32(input_yaml, "social_security_amount_delayed")?;
 
     let date_of_birth = parse_string(input_yaml, "date_of_birth")?;
-    let date_of_birth = NaiveDate::parse_from_str(&date_of_birth, "%m/%d/%Y").map_err(|_| "Invalid date")?;
-    
+    let date_of_birth =
+        NaiveDate::parse_from_str(&date_of_birth, "%m/%d/%Y").map_err(|_| "Invalid date")?;
+
     let retiree = Retiree {
         name,
         date_of_birth,
@@ -223,7 +232,7 @@ fn parse_retiree(input_yaml: &yaml_rust::Yaml) -> Result<Retiree, String> {
         social_security_amount_full,
         social_security_amount_delayed,
     };
-    
+
     Ok(retiree)
 }
 
@@ -250,14 +259,11 @@ fn parse_tax_rate(input_yaml: &yaml_rust::Yaml) -> Result<TaxLevel, String> {
     let income = parse_f32(input_yaml, "income")?;
     let rate = parse_f32(input_yaml, "rate")?;
 
-    let tax_rate = TaxLevel {
-        income,
-        rate,
-    };
+    let tax_rate = TaxLevel { income, rate };
 
     Ok(tax_rate)
 }
-    
+
 fn parse_tax_table(input_yaml: &yaml_rust::Yaml, name: &str) -> Result<TaxTable, String> {
     let mut tax_levels = Vec::new();
     let block = &input_yaml[name];
@@ -265,15 +271,17 @@ fn parse_tax_table(input_yaml: &yaml_rust::Yaml, name: &str) -> Result<TaxTable,
         return Err(format!("tax_rates {name} block missing"));
     }
 
-    let standard_deduction = parse_f32(block, "standard_deduction")
-        .map_err(|e| format!("{e} in tax_rates {name}"))?;
+    let standard_deduction =
+        parse_f32(block, "standard_deduction").map_err(|e| format!("{e} in tax_rates {name}"))?;
 
     let block = &block["levels"];
     if block.is_badvalue() {
         return Err(format!("levels block missing in tax_rates {name}"));
     }
 
-    let vec = block.as_vec().ok_or(format!("no tax rates found in {name}"))?;
+    let vec = block
+        .as_vec()
+        .ok_or(format!("no tax rates found in {name}"))?;
     for element in vec {
         tax_levels.push(parse_tax_rate(element).map_err(|e| format!("{e} in tax_rates {name}"))?);
     }
@@ -284,16 +292,24 @@ fn parse_tax_table(input_yaml: &yaml_rust::Yaml, name: &str) -> Result<TaxTable,
     match tax_levels.first() {
         None => return Err(format!("no tax rates found in {name}")),
         Some(first) if first.income != 0.0 => {
-            return Err(format!("first tax level in {name} must have income 0.0 (the lowest bracket)"));
+            return Err(format!(
+                "first tax level in {name} must have income 0.0 (the lowest bracket)"
+            ));
         }
         _ => {}
     }
     for pair in tax_levels.windows(2) {
         if pair[0].income == pair[1].income {
-            return Err(format!("duplicate tax level in {name} for income {}", pair[0].income));
+            return Err(format!(
+                "duplicate tax level in {name} for income {}",
+                pair[0].income
+            ));
         }
     }
-    if tax_levels.iter().any(|level| level.rate < 0.0 || level.rate >= 100.0) {
+    if tax_levels
+        .iter()
+        .any(|level| level.rate < 0.0 || level.rate >= 100.0)
+    {
         return Err(format!("tax rates in {name} must be between 0.0 and 100.0"));
     }
 
@@ -311,8 +327,11 @@ fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
         return Err("tax_rates block missing".to_string());
     }
     if !block["levels"].is_badvalue() {
-        return Err("tax_rates must now contain separate married_filing_jointly and single \
-                    blocks (see input.yaml)".to_string());
+        return Err(
+            "tax_rates must now contain separate married_filing_jointly and single \
+                    blocks (see input.yaml)"
+                .to_string(),
+        );
     }
 
     let tax_rates = TaxRates {
@@ -324,7 +343,11 @@ fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
 }
 
 fn validate_allocation(allocation: &portfolio::Allocation, name: &str) -> Result<(), String> {
-    let values = [allocation.us_equities, allocation.international, allocation.bonds];
+    let values = [
+        allocation.us_equities,
+        allocation.international,
+        allocation.bonds,
+    ];
     if values.iter().any(|&v| v < 0.0) {
         return Err(format!("{name} percentages can't be negative"));
     }
@@ -340,13 +363,23 @@ fn validate_input(input: &Input) -> Result<(), String> {
         return Err("at least one retiree is required".to_string());
     }
     let today = chrono::Utc::now().naive_utc().date();
-    if input.retirees.iter().all(|r| utils::get_age(&r.date_of_birth, &today) > r.life_expectency) {
+    if input
+        .retirees
+        .iter()
+        .all(|r| utils::get_age(&r.date_of_birth, &today) > r.life_expectency)
+    {
         return Err("every retiree is already past their life expectancy".to_string());
     }
 
     let portfolio = &input.portfolio;
-    validate_allocation(&portfolio.pre_retirement_allocation, "pre-retirement_allocation")?;
-    validate_allocation(&portfolio.post_retirement_allocation, "post-retirement_allocation")?;
+    validate_allocation(
+        &portfolio.pre_retirement_allocation,
+        "pre-retirement_allocation",
+    )?;
+    validate_allocation(
+        &portfolio.post_retirement_allocation,
+        "post-retirement_allocation",
+    )?;
     let standard_deviations = [
         portfolio.us_equity_standard_deviation,
         portfolio.international_equity_standard_deviation,
@@ -386,7 +419,6 @@ fn parse_input_str(file_str: &str) -> Result<Input, String> {
 fn parse_input_file(fname: &str) -> Result<Input, String> {
     let file_str = fs::read_to_string(fname).map_err(|e| format!("Can't read {fname}: {e}"))?;
     parse_input_str(&file_str)
-        
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -397,7 +429,7 @@ fn format_table(table: Vec<Vec<String>>) -> String {
     if table.is_empty() {
         return "".to_string();
     }
-    
+
     // find max len of each column
     let mut col_size: Vec<usize> = vec![0; table[0].len()];
     for row in table.iter() {
@@ -415,13 +447,12 @@ fn format_table(table: Vec<Vec<String>>) -> String {
             str.push_str(&format!("{:>width$} ", cell, width = col_size[i]));
         }
         str.push('\n');
-    } 
+    }
 
     str
 }
 
-fn num_with_commas(num: u64) -> String
-{
+fn num_with_commas(num: u64) -> String {
     num.to_formatted_string(&Locale::en)
 }
 
@@ -430,18 +461,29 @@ fn print_simulation_results(simulation_results: &simulate::SimulationResults) {
 
     let mut table: Vec<Vec<String>> = Vec::new();
 
-    let heading = vec!["".to_string(), "Year".to_string(), "Age".to_string(),
-                       "Balance".to_string(), "Expenses".to_string(),
-                       "Income".to_string(), "Tax".to_string(),
-                       "Rate".to_string(), "Draw".to_string(),
-                       "Yield".to_string(), "".to_string()];
-                       table.push(heading);
-    
+    let heading = vec![
+        "".to_string(),
+        "Year".to_string(),
+        "Age".to_string(),
+        "Balance".to_string(),
+        "Expenses".to_string(),
+        "Income".to_string(),
+        "Tax".to_string(),
+        "Rate".to_string(),
+        "Draw".to_string(),
+        "Yield".to_string(),
+        "".to_string(),
+    ];
+    table.push(heading);
+
     for (i, monthly_snapshot) in simulation_results.monthly_snapshot.iter().enumerate() {
         if (i % 12) == 0 {
             let mut row: Vec<String> = Vec::new();
-            
-            let age = utils::get_age(&simulation_results.retirees[0].date_of_birth, &monthly_snapshot.date);
+
+            let age = utils::get_age(
+                &simulation_results.retirees[0].date_of_birth,
+                &monthly_snapshot.date,
+            );
             row.push((i / 12).to_string());
             row.push(monthly_snapshot.date.format("%Y").to_string());
             row.push(age.to_string());
@@ -455,8 +497,7 @@ fn print_simulation_results(simulation_results: &simulate::SimulationResults) {
             if !retire_printed && (monthly_snapshot.date >= simulation_results.retirement_date) {
                 row.push("Retired!".to_string());
                 retire_printed = true;
-            }
-            else {
+            } else {
                 row.push("".to_string());
             }
 
@@ -465,22 +506,34 @@ fn print_simulation_results(simulation_results: &simulate::SimulationResults) {
     }
 
     println!("{}", format_table(table));
-    
+
     println!("Average return: {:.2}%", simulation_results.average_return);
 }
-    
+
 ///////////////////////////////////////////////////////////////////////////
 // Running simulations
 ///////////////////////////////////////////////////////////////////////////
 
-fn run_scan<S: scan::Scannable>(input: &Input, scanner: &mut S) -> Result<scan::ScanResults, String> {
-    let results = scanner.run_scan(input)?; 
-        
-    println!("Successful runs: {} of {} ({:.1}%)", results.num_successful,
-             results.num_simulations,
-             results.num_successful as f32/(results.num_simulations as f32) * 100.0);
-    println!("Lowest ending balance: ${}", num_with_commas(results.min_balance as u64));
-    println!("Highest ending balance: ${}", num_with_commas(results.max_balance as u64));
+fn run_scan<S: scan::Scannable>(
+    input: &Input,
+    scanner: &mut S,
+) -> Result<scan::ScanResults, String> {
+    let results = scanner.run_scan(input)?;
+
+    println!(
+        "Successful runs: {} of {} ({:.1}%)",
+        results.num_successful,
+        results.num_simulations,
+        results.num_successful as f32 / (results.num_simulations as f32) * 100.0
+    );
+    println!(
+        "Lowest ending balance: ${}",
+        num_with_commas(results.min_balance as u64)
+    );
+    println!(
+        "Highest ending balance: ${}",
+        num_with_commas(results.max_balance as u64)
+    );
 
     Ok(results)
 }
@@ -489,17 +542,28 @@ fn print_historical_result_details(results: &scan::ScanResults) {
     println!();
     println!("Scenarios (sorted by worst to best):");
     for index in results.sorted_indices.iter() {
-        println!("    years {} to {}, ending balance ${}",
-                results.scenario_results[*index].starting_year,
-                results.scenario_results[*index].ending_year,
-                num_with_commas(results.scenario_results[*index].simulation_results.monthly_snapshot.last().unwrap().balance as u64));
+        println!(
+            "    years {} to {}, ending balance ${}",
+            results.scenario_results[*index].starting_year,
+            results.scenario_results[*index].ending_year,
+            num_with_commas(
+                results.scenario_results[*index]
+                    .simulation_results
+                    .monthly_snapshot
+                    .last()
+                    .unwrap()
+                    .balance as u64
+            )
+        );
     }
 
     let worst_index = results.sorted_indices[0];
     println!();
-    println!("Worst result was years {} to {}",
-            results.scenario_results[worst_index].starting_year,
-            results.scenario_results[worst_index].ending_year);
+    println!(
+        "Worst result was years {} to {}",
+        results.scenario_results[worst_index].starting_year,
+        results.scenario_results[worst_index].ending_year
+    );
 }
 
 fn main() {
@@ -512,24 +576,28 @@ fn main() {
         println!("Usage: retirement-simulator <input file>");
         println!("Example: retirement-simulator retirement.yaml");
         return;
-    } 
+    }
 
     let input = parse_input_file(&args[1]);
     let input = match input {
         Ok(v) => v,
-        Err(e) => {println!("{e}"); process::exit(1);}
+        Err(e) => {
+            println!("{e}");
+            process::exit(1);
+        }
     };
-    
+
     println!("-= Simulation using uniform returns =-");
     println!();
     let simulation_results = simulate::run_simulation(&input).unwrap_or_else(|err| {
         println!("Error running simulation: {}", err);
         process::exit(1);
     });
-    if simulation_results.monthly_snapshot[simulation_results.monthly_snapshot.len() - 1].balance == 0.0 {
+    if simulation_results.monthly_snapshot[simulation_results.monthly_snapshot.len() - 1].balance
+        == 0.0
+    {
         println!("Retirement failed");
-    }
-    else {
+    } else {
         println!("Retirement succeeded!");
     }
     print_simulation_results(&simulation_results);
@@ -546,7 +614,7 @@ fn main() {
         process::exit(1);
     });
     print_historical_result_details(&historical_results);
-    
+
     println!();
     println!("-= Monte Carlo Simulation =-");
     println!();
@@ -558,7 +626,10 @@ fn main() {
 
     println!();
     println!("Worst year:");
-    print_simulation_results(&monte_carlo_results.scenario_results[monte_carlo_results.sorted_indices[0]].simulation_results);
+    print_simulation_results(
+        &monte_carlo_results.scenario_results[monte_carlo_results.sorted_indices[0]]
+            .simulation_results,
+    );
 }
 
 #[cfg(test)]
@@ -576,9 +647,15 @@ mod tests {
         let tax_rates = parse_levels(
             "    - {income: 24800.0, rate: 12.0}\n\
              \x20   - {income: 0.0, rate: 10.0}\n\
-             \x20   - {income: 100800.0, rate: 22.0}\n").unwrap();
+             \x20   - {income: 100800.0, rate: 22.0}\n",
+        )
+        .unwrap();
         assert_eq!(tax_rates.standard_deduction, 32200.0);
-        let levels: Vec<(f32, f32)> = tax_rates.tax_levels.iter().map(|l| (l.income, l.rate)).collect();
+        let levels: Vec<(f32, f32)> = tax_rates
+            .tax_levels
+            .iter()
+            .map(|l| (l.income, l.rate))
+            .collect();
         assert_eq!(levels, vec![(0.0, 10.0), (24800.0, 12.0), (100800.0, 22.0)]);
     }
 
@@ -592,7 +669,9 @@ mod tests {
     fn test_parse_tax_rates_rejects_duplicates() {
         let err = parse_levels(
             "    - {income: 0.0, rate: 10.0}\n\
-             \x20   - {income: 0.0, rate: 12.0}\n").unwrap_err();
+             \x20   - {income: 0.0, rate: 12.0}\n",
+        )
+        .unwrap_err();
         assert!(err.contains("duplicate"), "{err}");
     }
 
@@ -619,7 +698,10 @@ mod tests {
     fn test_tax_table_for_filing_status() {
         let input = parse_input_file("input.yaml").unwrap();
         let rates = &input.tax_rates;
-        assert!(std::ptr::eq(rates.table_for(2), &rates.married_filing_jointly));
+        assert!(std::ptr::eq(
+            rates.table_for(2),
+            &rates.married_filing_jointly
+        ));
         assert!(std::ptr::eq(rates.table_for(1), &rates.single));
     }
 
@@ -666,13 +748,18 @@ mod tests {
 
     #[test]
     fn test_parse_rejects_negative_standard_deviation() {
-        let err = parse_modified_sample("bonds_standard_deviation: 6.0", "bonds_standard_deviation: -6.0").unwrap_err();
+        let err = parse_modified_sample(
+            "bonds_standard_deviation: 6.0",
+            "bonds_standard_deviation: -6.0",
+        )
+        .unwrap_err();
         assert!(err.contains("standard deviation"), "{err}");
     }
 
     #[test]
     fn test_parse_survivor_percent() {
-        let input = parse_modified_sample("survivor_percent: 100.0", "survivor_percent: 70.0").unwrap();
+        let input =
+            parse_modified_sample("survivor_percent: 100.0", "survivor_percent: 70.0").unwrap();
         assert_eq!(input.expenses.survivor_percent, 70.0);
 
         // defaults to 100 when left out
@@ -682,9 +769,12 @@ mod tests {
 
     #[test]
     fn test_parse_errors_instead_of_panicking() {
-        assert!(parse_input_file("does-not-exist.yaml").unwrap_err().contains("Can't read"));
+        assert!(parse_input_file("does-not-exist.yaml")
+            .unwrap_err()
+            .contains("Can't read"));
         assert!(parse_input_str("").unwrap_err().contains("empty"));
-        assert!(parse_input_str("retirees: [").unwrap_err().contains("Invalid YAML"));
+        assert!(parse_input_str("retirees: [")
+            .unwrap_err()
+            .contains("Invalid YAML"));
     }
 }
-

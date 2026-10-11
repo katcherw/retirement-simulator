@@ -4,7 +4,7 @@
 * Simulate starting a retirement at every year since 1928.
 **************************************************************************/
 
-use crate::{Input, scan, simulate};
+use crate::{scan, simulate, Input};
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
@@ -35,11 +35,15 @@ pub struct HistoricalReturns {
 }
 
 fn str_to_u32(s: &str) -> Result<u32, String> {
-    s.trim().parse::<u32>().map_err(|v| format!("Invalid integer: {}", v))
+    s.trim()
+        .parse::<u32>()
+        .map_err(|v| format!("Invalid integer: {}", v))
 }
 
 fn str_to_f32(s: &str) -> Result<f32, String> {
-    s.trim().parse::<f32>().map_err(|v| format!("Invalid floating point: {}", v))
+    s.trim()
+        .parse::<f32>()
+        .map_err(|v| format!("Invalid floating point: {}", v))
 }
 
 fn str_to_f32_optional(s: &str) -> Option<f32> {
@@ -63,7 +67,7 @@ fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturns
             international_total += international;
             international_count += 1.0;
         }
-    };
+    }
 
     let mut averages = HistoricalReturnsOneYear::default();
     let count = returns.len() as f32;
@@ -75,11 +79,14 @@ fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturns
         averages.corp_bonds = totals.corp_bonds / count;
         averages.real_estate = totals.real_estate / count;
         averages.gold = totals.gold / count;
-        averages.international = Some(if international_count > 0.0
-            { international_total / international_count } else { 0.0 });
+        averages.international = Some(if international_count > 0.0 {
+            international_total / international_count
+        } else {
+            0.0
+        });
     };
 
-    averages    
+    averages
 }
 
 fn parse_returns() -> Result<HistoricalReturns, String> {
@@ -132,7 +139,7 @@ fn parse_returns_from<R: BufRead>(reader: R) -> Result<HistoricalReturns, String
     let averages = calculate_averages(&annual_returns);
     let historical_returns = HistoricalReturns {
         annual_returns,
-        averages
+        averages,
     };
     Ok(historical_returns)
 }
@@ -149,23 +156,27 @@ impl HistoricalScan {
     pub fn new() -> Result<Self, String> {
         let historical_returns = parse_returns()?;
         // println!("Averages: {:?}", historical_returns.averages);
-        Ok(HistoricalScan {historical_returns})
+        Ok(HistoricalScan { historical_returns })
     }
-    
-    fn run_scenario(&mut self,
-                    starting_index: usize, 
-                    input: &Input) -> Result<scan::Scenario, String> {
+
+    fn run_scenario(
+        &mut self,
+        starting_index: usize,
+        input: &Input,
+    ) -> Result<scan::Scenario, String> {
         let mut simulation = simulate::Simulation::new(input);
         let mut index = starting_index;
 
         'outer: loop {
             for _month in 0..12 {
-                let international = self.historical_returns.annual_returns[index].international.unwrap_or(
-                    self.historical_returns.annual_returns[index].sp500return);
+                let international = self.historical_returns.annual_returns[index]
+                    .international
+                    .unwrap_or(self.historical_returns.annual_returns[index].sp500return);
                 let is_finished = simulation.run_simulation_one_month(
                     self.historical_returns.annual_returns[index].sp500return,
                     international,
-                    self.historical_returns.annual_returns[index].tbill10year)?;
+                    self.historical_returns.annual_returns[index].tbill10year,
+                )?;
                 if is_finished {
                     break 'outer;
                 }
@@ -189,9 +200,7 @@ impl scan::Scannable for HistoricalScan {
         let mut results = scan::ScanResults::new();
 
         for index in 0..self.historical_returns.annual_returns.len() {
-            let historical_scenario = self.run_scenario(
-                index,
-                input)?;
+            let historical_scenario = self.run_scenario(index, input)?;
             scan::add_scenario_to_results(&mut results, historical_scenario, index);
         }
 
@@ -200,8 +209,6 @@ impl scan::Scannable for HistoricalScan {
         Ok(results)
     }
 }
-
-    
 
 #[cfg(test)]
 mod tests {
@@ -238,6 +245,9 @@ mod tests {
     fn test_parse_returns_file() {
         let returns = parse_returns().unwrap();
         assert_eq!(returns.annual_returns[0].year, 1928);
-        assert!(returns.annual_returns.iter().any(|r| r.international.is_none()));
+        assert!(returns
+            .annual_returns
+            .iter()
+            .any(|r| r.international.is_none()));
     }
 }

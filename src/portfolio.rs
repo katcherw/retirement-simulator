@@ -18,10 +18,10 @@ pub struct Allocation {
 #[derive(Debug, Clone, Copy)]
 pub struct Portfolio {
     pub balance: f32,
-    
+
     pub pre_retirement_allocation: Allocation,
     pub post_retirement_allocation: Allocation,
-    
+
     pub us_equity_expected_returns: f32,
     pub us_equity_standard_deviation: f32,
     pub international_equity_expected_returns: f32,
@@ -41,30 +41,34 @@ impl Portfolio {
             self.balance = 0.0;
         }
     }
-    
+
     // grows the balance and returns annualized average return
     pub fn grow(
         &mut self,
         us_equity_expected_returns: f32,
         international_equity_expected_returns: f32,
         bonds_expected_returns: f32,
-        use_post_retirement: bool) -> f32 {
-        let &allocation = if use_post_retirement {&self.post_retirement_allocation}
-            else {&self.pre_retirement_allocation};
+        use_post_retirement: bool,
+    ) -> f32 {
+        let &allocation = if use_post_retirement {
+            &self.post_retirement_allocation
+        } else {
+            &self.pre_retirement_allocation
+        };
         let mut us_equity = self.balance * allocation.us_equities / 100.0;
         let mut international_equity = self.balance * allocation.international / 100.0;
         let mut bonds = self.balance * allocation.bonds / 100.0;
 
         us_equity *= get_monthly_rate(us_equity_expected_returns / 100.0) + 1.0;
-        international_equity *= get_monthly_rate(international_equity_expected_returns / 100.0) + 1.0;
+        international_equity *=
+            get_monthly_rate(international_equity_expected_returns / 100.0) + 1.0;
         bonds *= get_monthly_rate(bonds_expected_returns / 100.0) + 1.0;
 
         self.balance = us_equity + international_equity + bonds;
 
         // return annualized return
-        us_equity_expected_returns * allocation.us_equities / 100.0 +
-            international_equity_expected_returns * allocation.international / 100.0 +
-            bonds_expected_returns * allocation.bonds / 100.0
+        us_equity_expected_returns * allocation.us_equities / 100.0
+            + international_equity_expected_returns * allocation.international / 100.0
+            + bonds_expected_returns * allocation.bonds / 100.0
     }
 }
-
