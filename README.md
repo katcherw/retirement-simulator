@@ -44,6 +44,17 @@ cargo run input.yaml
 The configuration is entered in input.yaml. A template is included in the root
 directory of this project.
 
+The Monte Carlo simulation is random, so its results change slightly from run to
+run. Each run prints the random seed it used. To repeat a run exactly, for
+example to check whether a change to your plan really helped rather than just
+getting a luckier draw, pass that seed with `--seed`:
+
+```
+cargo run -- --seed 42 input.yaml
+```
+
+Simulations start in the current month.
+
 ## Configuration Values
 
 A sample configuration file is found in input.yaml.
@@ -214,7 +225,8 @@ example, US stocks with an expected return of 3.2% and a standard deviation of
 15% are drawn with a mean of 4.3%. The returns of the three asset classes are
 drawn together using the correlations from the input file, so that, for example,
 a bad year for US stocks is usually also a bad year for international stocks.
-1000 such simulations will be performed.
+1000 such simulations will be performed. The random seed is printed first, so
+the same simulations can be repeated with `--seed` (see Building and Running).
 
 The output starts with the percentage of successful simulations, followed by a
 summary of all the simulations:

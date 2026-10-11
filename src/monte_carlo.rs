@@ -6,7 +6,8 @@
 
 use crate::portfolio::Portfolio;
 use crate::{scan, simulate, Input};
-use rand::Rng;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use rand_distr::StandardNormal;
 
 // Draws annual returns for US equities, international equities, and bonds
@@ -125,11 +126,16 @@ fn cholesky(matrix: &[[f64; 3]; 3]) -> Result<[[f64; 3]; 3], String> {
     Ok(lower)
 }
 
-pub struct MonteCarloScan {}
+pub struct MonteCarloScan {
+    rng: StdRng,
+}
 
 impl MonteCarloScan {
-    pub fn new() -> Self {
-        MonteCarloScan {}
+    // the same seed gives the same simulations every time
+    pub fn new(seed: u64) -> Self {
+        MonteCarloScan {
+            rng: StdRng::seed_from_u64(seed),
+        }
     }
 
     fn run_scenario(
@@ -138,10 +144,9 @@ impl MonteCarloScan {
         sampler: &ReturnsSampler,
     ) -> Result<scan::Scenario, String> {
         let mut simulation = simulate::Simulation::new(input);
-        let mut rng = rand::thread_rng();
 
         'outer: loop {
-            let [us_returns, international_returns, bonds_returns] = sampler.sample(&mut rng);
+            let [us_returns, international_returns, bonds_returns] = sampler.sample(&mut self.rng);
             for _ in 0..12 {
                 let is_finished = simulation.run_simulation_one_month(
                     us_returns,
@@ -182,8 +187,6 @@ impl scan::Scannable for MonteCarloScan {
 mod tests {
     use super::*;
     use crate::portfolio::Allocation;
-    use rand::rngs::StdRng;
-    use rand::SeedableRng;
 
     fn portfolio(us_international: f32, us_bonds: f32, international_bonds: f32) -> Portfolio {
         let allocation = Allocation {
