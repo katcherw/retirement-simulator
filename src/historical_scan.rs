@@ -159,6 +159,27 @@ impl HistoricalScan {
         Ok(HistoricalScan { historical_returns })
     }
 
+    // first and last years of historical data
+    pub fn first_and_last_years(&self) -> (u32, u32) {
+        let returns = &self.historical_returns.annual_returns;
+        (returns[0].year, returns[returns.len() - 1].year)
+    }
+
+    // the years of returns a scenario used. A scenario that runs past the
+    // last year of data continues from the first year, so these sequences of
+    // returns never actually happened in that order.
+    pub fn describe_years(&self, scenario: &scan::Scenario) -> String {
+        let (first, last) = self.first_and_last_years();
+        if scenario.ending_year < scenario.starting_year {
+            format!(
+                "{} to {}, then {} to {}",
+                scenario.starting_year, last, first, scenario.ending_year
+            )
+        } else {
+            format!("{} to {}", scenario.starting_year, scenario.ending_year)
+        }
+    }
+
     fn run_scenario(
         &mut self,
         starting_index: usize,
@@ -248,5 +269,25 @@ mod tests {
             .annual_returns
             .iter()
             .any(|r| r.international.is_none()));
+    }
+
+    fn scenario(starting_year: u32, ending_year: u32) -> scan::Scenario {
+        scan::Scenario {
+            simulation_results: simulate::SimulationResults::default(),
+            starting_year,
+            ending_year,
+        }
+    }
+
+    #[test]
+    fn test_describe_years() {
+        let scan = HistoricalScan::new().unwrap();
+        let (first, last) = scan.first_and_last_years();
+        assert_eq!(first, 1928);
+        assert_eq!(scan.describe_years(&scenario(1956, 1984)), "1956 to 1984");
+        assert_eq!(
+            scan.describe_years(&scenario(2018, 1948)),
+            format!("2018 to {last}, then 1928 to 1948")
+        );
     }
 }

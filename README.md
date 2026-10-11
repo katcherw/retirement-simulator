@@ -213,12 +213,18 @@ The output is a table with the following columns:
 
 ### Historical Simulation
 
-This simulation uses historical investment data to simulate starting a
-retirement at any time in history. First it simulates a retirement starting in
-1928. Then it simulates starting in 1929. And so on. If it runs out of years to
-simulate, it starts again in 1928. For example, if the data is available for
-1928 to 2023 and the simulation starts in 2022, the simulations first year of
-retirement will be 2022, next 2023, next 1928, next 1929, etc.
+This simulation uses historical investment data to simulate starting your plan
+(today) in each year of history. First it runs your plan with the returns from
+1928, 1929, and so on. Then it runs it again starting with the returns from
+1929. And so on, for every year of data.
+
+When a scenario runs out of years of data, it continues from 1928. For example,
+the data covers 1928 to 2025, so a 30 year plan starting with 2010 uses the
+returns from 2010 to 2025, then 1928 to 1941. These later years are not a real
+historical sequence, but wrapping around gives every starting year a full
+length scenario, so more of history is tested. The output says how many
+scenarios wrapped around, and lists their years as, for example, "2010 to 2025,
+then 1928 to 1941".
 
 The output will print the percentage of years that were successful, i.e. the
 number of years where the balance didn't go to 0 at any point, followed by the
