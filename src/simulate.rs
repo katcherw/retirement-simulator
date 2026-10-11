@@ -484,6 +484,9 @@ mod tests {
                 international_equity_standard_deviation: 0.0,
                 bonds_expected_returns: 0.0,
                 bonds_standard_deviation: 0.0,
+                us_international_correlation: 0.0,
+                us_bonds_correlation: 0.0,
+                international_bonds_correlation: 0.0,
             },
             expenses: crate::Expenses {
                 monthly: monthly_expenses,

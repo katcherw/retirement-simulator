@@ -28,6 +28,12 @@ pub struct Portfolio {
     pub international_equity_standard_deviation: f32,
     pub bonds_expected_returns: f32,
     pub bonds_standard_deviation: f32,
+
+    // correlation of annual returns between asset classes (-1.0 to 1.0),
+    // used by the monte carlo simulation
+    pub us_international_correlation: f32,
+    pub us_bonds_correlation: f32,
+    pub international_bonds_correlation: f32,
 }
 
 impl Portfolio {

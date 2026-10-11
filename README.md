@@ -110,6 +110,24 @@ Fidelity Investments. You may change these as you like. All expected returns are
 real returns as opposed to nominal returns. In other words, the returns are the
 actual returns minus inflation.
 
+The last group of values is the correlation of annual returns between the asset
+classes, used by the Monte Carlo simulation.
+
+| Value | Description |
+| --- | --- |
+| us_international_correlation | Correlation between US and international stocks. The sample file uses 0.8. |
+| us_bonds_correlation | Correlation between US stocks and bonds. The sample file uses 0.3. |
+| international_bonds_correlation | Correlation between international stocks and bonds. The sample file uses 0.3. |
+
+Correlations range from -1.0 (always move in opposite directions) to 1.0 (always
+move together). US and international stocks have historically been strongly
+correlated (about 0.7 to 0.85 depending on the period). The correlation between
+stocks and bonds has varied widely, from negative in 2000-2020 to strongly
+positive in years like 2022, so the sample value of 0.3 is a cautious middle
+ground.
+Some investment firms, such as J.P. Morgan in its Long-Term Capital Market
+Assumptions, publish forecasted correlations along with expected returns.
+
 ### Expenses
 
 The expenses section is your estimated monthly expenses during retirement. A
@@ -119,7 +137,7 @@ taxes, retirement contributions, benefits, etc.).
 | Value | Description |
 | --- | --- |
 | monthly | Monthly expenses during retirement. |
-| survivor_percent | Optional. Percentage of `monthly` that remains after one spouse dies (e.g. 70.0). Defaults to 100.0. |
+| survivor_percent | Percentage of `monthly` that remains after one spouse dies (e.g. 70.0). Use 100.0 for no change. For a single retiree this has no effect. |
 
 ### Tax Rates
 
@@ -183,7 +201,10 @@ The simulation results are then sorted from worst to best results and printed.
 The Monte Carlo simulation takes the expected returns and standard deviations in
 the input, and simulates each year with a random value. That random value will
 be chosen from a normal distribution with the mean and standard deviation from
-the input file. 1000 such simulations will be performed.
+the input file. The returns of the three asset classes are drawn together using
+the correlations from the input file, so that, for example, a bad year for US
+stocks is usually also a bad year for international stocks. 1000 such
+simulations will be performed.
 
 The output is the percentage of successful simulations. The worst year's result
 will be printed in a format the same as the Uniform Simulation.
