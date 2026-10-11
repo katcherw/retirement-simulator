@@ -32,51 +32,51 @@ struct Retiree {
     date_of_birth: NaiveDate,
     retirement_age: u32,
     life_expectency: u32,
-    salary_annual: f32,
-    retirement_contribution_percent: f32,
+    salary_annual: f64,
+    retirement_contribution_percent: f64,
     social_security_age: u32,
     pension_age: u32,
-    pension_monthly_income: f32,
-    other_monthly_retirement_income: f32,
-    social_security_amount_early: f32,
-    social_security_amount_full: f32,
-    social_security_amount_delayed: f32,
+    pension_monthly_income: f64,
+    other_monthly_retirement_income: f64,
+    social_security_amount_early: f64,
+    social_security_amount_full: f64,
+    social_security_amount_delayed: f64,
 }
 
 #[derive(Debug)]
 struct Expenses {
-    monthly: f32,
+    monthly: f64,
     // percentage of expenses that remain after one spouse dies
-    survivor_percent: f32,
+    survivor_percent: f64,
 }
 
 // a tax bracket: income is the lower bound of taxable income (after the
 // standard deduction) that is taxed at rate (percentage)
 #[derive(Debug, Copy, Clone)]
 pub struct TaxLevel {
-    income: f32,
-    rate: f32,
+    income: f64,
+    rate: f64,
 }
 
 // tax brackets, deductions, and social security thresholds for one filing
 // status
 #[derive(Debug)]
 pub struct TaxTable {
-    standard_deduction: f32,
+    standard_deduction: f64,
     // added to the standard deduction for each retiree 65 or older
-    additional_deduction_65_or_older: f32,
+    additional_deduction_65_or_older: f64,
     // provisional income (other income plus half of social security) above
     // which up to 50%, then up to 85%, of social security is taxable. These
     // are fixed by law and not adjusted for inflation.
-    social_security_base: f32,
-    social_security_adjusted_base: f32,
+    social_security_base: f64,
+    social_security_adjusted_base: f64,
     tax_levels: Vec<TaxLevel>,
 }
 
 #[derive(Debug)]
 pub struct TaxRates {
     // used to shrink the social security thresholds in today's dollars
-    expected_inflation: f32,
+    expected_inflation: f64,
     married_filing_jointly: TaxTable,
     single: TaxTable,
 }
@@ -121,19 +121,19 @@ fn parse_u32(yaml: &yaml_rust::Yaml, field_name: &str) -> Result<u32, String> {
 }
 
 // accepts both floating point (3140.0) and integer (3140) values
-fn parse_f32(yaml: &yaml_rust::Yaml, field_name: &str) -> Result<f32, String> {
+fn parse_f64(yaml: &yaml_rust::Yaml, field_name: &str) -> Result<f64, String> {
     let value = yaml[field_name]
         .as_f64()
         .or_else(|| yaml[field_name].as_i64().map(|v| v as f64))
         .ok_or("Invalid value: ".to_string() + field_name)?;
 
-    Ok(value as f32)
+    Ok(value)
 }
 
 fn parse_allocation(input_yaml: &yaml_rust::Yaml) -> Result<portfolio::Allocation, String> {
-    let us_equities = parse_f32(input_yaml, "us_equities")?;
-    let international = parse_f32(input_yaml, "international")?;
-    let bonds = parse_f32(input_yaml, "bonds")?;
+    let us_equities = parse_f64(input_yaml, "us_equities")?;
+    let international = parse_f64(input_yaml, "international")?;
+    let bonds = parse_f64(input_yaml, "bonds")?;
 
     let allocation = portfolio::Allocation {
         us_equities,
@@ -150,7 +150,7 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
         return Err("portfolio block missing".to_string());
     }
 
-    let balance = parse_f32(block, "balance")?;
+    let balance = parse_f64(block, "balance")?;
 
     let pre_retirement_block = &block["pre-retirement_allocation"];
     if pre_retirement_block.is_badvalue() {
@@ -164,17 +164,17 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
     }
     let post_retirement_allocation = parse_allocation(post_retirement_block)?;
 
-    let us_equity_expected_returns = parse_f32(block, "us_equity_expected_returns")?;
-    let us_equity_standard_deviation = parse_f32(block, "us_equity_standard_deviation")?;
+    let us_equity_expected_returns = parse_f64(block, "us_equity_expected_returns")?;
+    let us_equity_standard_deviation = parse_f64(block, "us_equity_standard_deviation")?;
     let international_equity_expected_returns =
-        parse_f32(block, "international_equity_expected_returns")?;
+        parse_f64(block, "international_equity_expected_returns")?;
     let international_equity_standard_deviation =
-        parse_f32(block, "international_equity_standard_deviation")?;
-    let bonds_expected_returns = parse_f32(block, "bonds_expected_returns")?;
-    let bonds_standard_deviation = parse_f32(block, "bonds_standard_deviation")?;
-    let us_international_correlation = parse_f32(block, "us_international_correlation")?;
-    let us_bonds_correlation = parse_f32(block, "us_bonds_correlation")?;
-    let international_bonds_correlation = parse_f32(block, "international_bonds_correlation")?;
+        parse_f64(block, "international_equity_standard_deviation")?;
+    let bonds_expected_returns = parse_f64(block, "bonds_expected_returns")?;
+    let bonds_standard_deviation = parse_f64(block, "bonds_standard_deviation")?;
+    let us_international_correlation = parse_f64(block, "us_international_correlation")?;
+    let us_bonds_correlation = parse_f64(block, "us_bonds_correlation")?;
+    let international_bonds_correlation = parse_f64(block, "international_bonds_correlation")?;
 
     let portfolio = Portfolio {
         balance,
@@ -200,8 +200,8 @@ fn parse_expenses(input_yaml: &yaml_rust::Yaml) -> Result<Expenses, String> {
         return Err("expenses block missing".to_string());
     }
 
-    let monthly = parse_f32(block, "monthly")?;
-    let survivor_percent = parse_f32(block, "survivor_percent")?;
+    let monthly = parse_f64(block, "monthly")?;
+    let survivor_percent = parse_f64(block, "survivor_percent")?;
 
     let expenses = Expenses {
         monthly,
@@ -216,15 +216,15 @@ fn parse_retiree(input_yaml: &yaml_rust::Yaml) -> Result<Retiree, String> {
     let life_expectency = parse_u32(input_yaml, "life_expectency")?;
     let retirement_age = parse_u32(input_yaml, "retirement_age")?;
 
-    let salary_annual = parse_f32(input_yaml, "wage_annual_salary")?;
-    let retirement_contribution_percent = parse_f32(input_yaml, "retirement_contribution_percent")?;
+    let salary_annual = parse_f64(input_yaml, "wage_annual_salary")?;
+    let retirement_contribution_percent = parse_f64(input_yaml, "retirement_contribution_percent")?;
     let social_security_age = parse_u32(input_yaml, "social_security_age")?;
     let pension_age = parse_u32(input_yaml, "pension_age")?;
-    let pension_monthly_income = parse_f32(input_yaml, "pension_monthly_income")?;
-    let other_monthly_retirement_income = parse_f32(input_yaml, "other_monthly_retirement_income")?;
-    let social_security_amount_early = parse_f32(input_yaml, "social_security_amount_early")?;
-    let social_security_amount_full = parse_f32(input_yaml, "social_security_amount_full")?;
-    let social_security_amount_delayed = parse_f32(input_yaml, "social_security_amount_delayed")?;
+    let pension_monthly_income = parse_f64(input_yaml, "pension_monthly_income")?;
+    let other_monthly_retirement_income = parse_f64(input_yaml, "other_monthly_retirement_income")?;
+    let social_security_amount_early = parse_f64(input_yaml, "social_security_amount_early")?;
+    let social_security_amount_full = parse_f64(input_yaml, "social_security_amount_full")?;
+    let social_security_amount_delayed = parse_f64(input_yaml, "social_security_amount_delayed")?;
 
     let date_of_birth = parse_string(input_yaml, "date_of_birth")?;
     let date_of_birth =
@@ -265,8 +265,8 @@ fn parse_retirees(input_yaml: &yaml_rust::Yaml) -> Result<Vec<Retiree>, String> 
 }
 
 fn parse_tax_rate(input_yaml: &yaml_rust::Yaml) -> Result<TaxLevel, String> {
-    let income = parse_f32(input_yaml, "income")?;
-    let rate = parse_f32(input_yaml, "rate")?;
+    let income = parse_f64(input_yaml, "income")?;
+    let rate = parse_f64(input_yaml, "rate")?;
 
     let tax_rate = TaxLevel { income, rate };
 
@@ -281,7 +281,7 @@ fn parse_tax_table(input_yaml: &yaml_rust::Yaml, name: &str) -> Result<TaxTable,
     }
 
     let field =
-        |field_name| parse_f32(block, field_name).map_err(|e| format!("{e} in tax_rates {name}"));
+        |field_name| parse_f64(block, field_name).map_err(|e| format!("{e} in tax_rates {name}"));
     let standard_deduction = field("standard_deduction")?;
     let additional_deduction_65_or_older = field("additional_deduction_65_or_older")?;
     let social_security_base = field("social_security_base")?;
@@ -363,7 +363,7 @@ fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
     }
 
     let expected_inflation =
-        parse_f32(block, "expected_inflation").map_err(|e| format!("{e} in tax_rates"))?;
+        parse_f64(block, "expected_inflation").map_err(|e| format!("{e} in tax_rates"))?;
     if expected_inflation <= -100.0 {
         return Err("expected_inflation in tax_rates must be more than -100.0".to_string());
     }
@@ -386,7 +386,7 @@ fn validate_allocation(allocation: &portfolio::Allocation, name: &str) -> Result
     if values.iter().any(|&v| v < 0.0) {
         return Err(format!("{name} percentages can't be negative"));
     }
-    let total: f32 = values.iter().sum();
+    let total: f64 = values.iter().sum();
     if (total - 100.0).abs() > 0.01 {
         return Err(format!("{name} must add up to 100.0 (currently {total})"));
     }
@@ -559,8 +559,8 @@ fn run_scan<S: scan::Scannable>(
     Ok(results)
 }
 
-fn percent(count: usize, total: u32) -> f32 {
-    count as f32 / total as f32 * 100.0
+fn percent(count: usize, total: u32) -> f64 {
+    count as f64 / total as f64 * 100.0
 }
 
 fn print_scan_summary(results: &scan::ScanResults) {
@@ -808,7 +808,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(tax_rates.standard_deduction, 32200.0);
-        let levels: Vec<(f32, f32)> = tax_rates
+        let levels: Vec<(f64, f64)> = tax_rates
             .tax_levels
             .iter()
             .map(|l| (l.income, l.rate))
@@ -1060,7 +1060,7 @@ mod tests {
     }
 
     // ending balance of every monte carlo scenario, in the order they ran
-    fn monte_carlo_ending_balances(seed: u64) -> Vec<f32> {
+    fn monte_carlo_ending_balances(seed: u64) -> Vec<f64> {
         use scan::Scannable;
         let input = parse_input_file("input.yaml", start_date()).unwrap();
         let results = MonteCarloScan::new(seed).run_scan(&input).unwrap();

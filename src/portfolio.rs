@@ -10,38 +10,38 @@ use crate::utils::*;
 // all values are percentages (0-100.0)
 #[derive(Debug, Clone, Copy)]
 pub struct Allocation {
-    pub us_equities: f32,
-    pub international: f32,
-    pub bonds: f32,
+    pub us_equities: f64,
+    pub international: f64,
+    pub bonds: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Portfolio {
-    pub balance: f32,
+    pub balance: f64,
 
     pub pre_retirement_allocation: Allocation,
     pub post_retirement_allocation: Allocation,
 
-    pub us_equity_expected_returns: f32,
-    pub us_equity_standard_deviation: f32,
-    pub international_equity_expected_returns: f32,
-    pub international_equity_standard_deviation: f32,
-    pub bonds_expected_returns: f32,
-    pub bonds_standard_deviation: f32,
+    pub us_equity_expected_returns: f64,
+    pub us_equity_standard_deviation: f64,
+    pub international_equity_expected_returns: f64,
+    pub international_equity_standard_deviation: f64,
+    pub bonds_expected_returns: f64,
+    pub bonds_standard_deviation: f64,
 
     // correlation of annual returns between asset classes (-1.0 to 1.0),
     // used by the monte carlo simulation
-    pub us_international_correlation: f32,
-    pub us_bonds_correlation: f32,
-    pub international_bonds_correlation: f32,
+    pub us_international_correlation: f64,
+    pub us_bonds_correlation: f64,
+    pub international_bonds_correlation: f64,
 }
 
 impl Portfolio {
-    pub fn deposit(&mut self, amount: f32) {
+    pub fn deposit(&mut self, amount: f64) {
         self.balance += amount;
     }
 
-    pub fn withdraw(&mut self, amount: f32) {
+    pub fn withdraw(&mut self, amount: f64) {
         self.balance -= amount;
         if self.balance < 0.0 {
             self.balance = 0.0;
@@ -51,11 +51,11 @@ impl Portfolio {
     // grows the balance and returns annualized average return
     pub fn grow(
         &mut self,
-        us_equity_expected_returns: f32,
-        international_equity_expected_returns: f32,
-        bonds_expected_returns: f32,
+        us_equity_expected_returns: f64,
+        international_equity_expected_returns: f64,
+        bonds_expected_returns: f64,
         use_post_retirement: bool,
-    ) -> f32 {
+    ) -> f64 {
         let &allocation = if use_post_retirement {
             &self.post_retirement_allocation
         } else {

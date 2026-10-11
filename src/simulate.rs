@@ -13,13 +13,13 @@ use chrono::NaiveDate;
 #[derive(Debug)]
 pub struct MonthlySnapshot {
     pub date: NaiveDate,
-    pub balance: f32,
-    pub expenses: f32,
-    pub income: f32,
-    pub tax_rate: f32,
-    pub taxes: f32,
-    pub withdrawal_rate: f32,
-    pub annualized_return: f32,
+    pub balance: f64,
+    pub expenses: f64,
+    pub income: f64,
+    pub tax_rate: f64,
+    pub taxes: f64,
+    pub withdrawal_rate: f64,
+    pub annualized_return: f64,
 }
 
 // values collected for each retiree during simulation to make
@@ -32,7 +32,7 @@ pub struct RetireeInfo {
     pub death_date: NaiveDate,
     pub social_security_date: NaiveDate,
     pub date_of_birth: NaiveDate,
-    social_security_income: f32,
+    social_security_income: f64,
 }
 
 #[derive(Debug, Default)]
@@ -40,21 +40,21 @@ pub struct SimulationResults {
     pub retirement_date: NaiveDate,
     pub retirees: Vec<RetireeInfo>,
     pub monthly_snapshot: Vec<MonthlySnapshot>,
-    pub average_return: f32,
+    pub average_return: f64,
 }
 
 // returns the annual tax and the marginal tax rate (percentage) for the given
 // annual taxable income. Tax levels must be sorted by income, with each
 // level's income being the lower bound of its bracket.
-fn bracket_taxes(taxable_income: f32, tax_levels: &[TaxLevel]) -> (f32, f32) {
-    let mut annual_tax: f32 = 0.0;
-    let mut marginal_rate: f32 = 0.0;
+fn bracket_taxes(taxable_income: f64, tax_levels: &[TaxLevel]) -> (f64, f64) {
+    let mut annual_tax: f64 = 0.0;
+    let mut marginal_rate: f64 = 0.0;
 
     for (i, level) in tax_levels.iter().enumerate() {
         if taxable_income <= level.income {
             break;
         }
-        let upper = tax_levels.get(i + 1).map_or(f32::MAX, |next| next.income);
+        let upper = tax_levels.get(i + 1).map_or(f64::MAX, |next| next.income);
         annual_tax += (taxable_income.min(upper) - level.income) * level.rate / 100.0;
         marginal_rate = level.rate;
     }
@@ -67,15 +67,15 @@ fn bracket_taxes(taxable_income: f32, tax_levels: &[TaxLevel]) -> (f32, f32) {
 // benefits. Above the base amount, half of the excess is taxable (up to half
 // of the benefits). Above the adjusted base amount, 85% of that excess is
 // added, up to 85% of the benefits.
-fn taxable_social_security(benefits: f32, other_income: f32, base: f32, adjusted_base: f32) -> f32 {
+fn taxable_social_security(benefits: f64, other_income: f64, base: f64, adjusted_base: f64) -> f64 {
     let provisional_income = other_income + benefits / 2.0;
     if provisional_income <= base {
         0.0
     } else if provisional_income <= adjusted_base {
-        f32::min((provisional_income - base) / 2.0, benefits / 2.0)
+        f64::min((provisional_income - base) / 2.0, benefits / 2.0)
     } else {
-        let below_adjusted_base = f32::min((adjusted_base - base) / 2.0, benefits / 2.0);
-        f32::min(
+        let below_adjusted_base = f64::min((adjusted_base - base) / 2.0, benefits / 2.0);
+        f64::min(
             (provisional_income - adjusted_base) * 0.85 + below_adjusted_base,
             benefits * 0.85,
         )
@@ -86,15 +86,15 @@ fn taxable_social_security(benefits: f32, other_income: f32, base: f32, adjusted
 // deduction and social security thresholds adjusted for the household
 struct TaxRules<'a> {
     tax_levels: &'a [TaxLevel],
-    standard_deduction: f32,
-    social_security_base: f32,
-    social_security_adjusted_base: f32,
+    standard_deduction: f64,
+    social_security_base: f64,
+    social_security_adjusted_base: f64,
 }
 
 impl TaxRules<'_> {
     // returns the monthly tax and the marginal tax bracket (percentage) for
     // monthly social security benefits and other taxable income
-    fn taxes(&self, social_security: f32, other_income: f32) -> (f32, f32) {
+    fn taxes(&self, social_security: f64, other_income: f64) -> (f64, f64) {
         let social_security = social_security * 12.0;
         let other_income = other_income * 12.0;
         let taxable_income = other_income
@@ -118,11 +118,11 @@ impl TaxRules<'_> {
     // (including the tax on the extra withdrawal) and the marginal bracket.
     fn taxes_with_withdrawals(
         &self,
-        social_security: f32,
-        other_income: f32,
-        surplus: f32,
-    ) -> (f32, f32) {
-        let shortfall = |extra: f32| self.taxes(social_security, other_income + extra).0 - surplus;
+        social_security: f64,
+        other_income: f64,
+        surplus: f64,
+    ) -> (f64, f64) {
+        let shortfall = |extra: f64| self.taxes(social_security, other_income + extra).0 - surplus;
         if shortfall(0.0) <= 0.0 {
             return self.taxes(social_security, other_income);
         }
@@ -155,10 +155,10 @@ impl TaxRules<'_> {
 // the whole table should be entered.
 fn get_social_security_monthly_income(
     retirement_age: u32,
-    benefit_early: f32,
-    benefit_full: f32,
-    benefit_delayed: f32,
-) -> f32 {
+    benefit_early: f64,
+    benefit_full: f64,
+    benefit_delayed: f64,
+) -> f64 {
     let min_age = 62;
     let normal_age = 67;
     let max_age = 70;
@@ -169,12 +169,12 @@ fn get_social_security_monthly_income(
         0.0
     } else if retirement_age >= normal_age {
         benefit_full
-            + (benefit_delayed - benefit_full) * (retirement_age - normal_age) as f32
-                / (max_age - normal_age) as f32
+            + (benefit_delayed - benefit_full) * (retirement_age - normal_age) as f64
+                / (max_age - normal_age) as f64
     } else {
         benefit_early
-            + (benefit_full - benefit_early) * (retirement_age - min_age) as f32
-                / (normal_age - min_age) as f32
+            + (benefit_full - benefit_early) * (retirement_age - min_age) as f64
+                / (normal_age - min_age) as f64
     }
 }
 
@@ -185,11 +185,11 @@ pub struct Simulation<'a> {
     input_: &'a Input,
     current_date_: NaiveDate,
     portfolio_: Portfolio,
-    expenses_: f32,
-    sum_of_returns_: f32,
+    expenses_: f64,
+    sum_of_returns_: f64,
     // the social security tax thresholds aren't adjusted for inflation, so
     // they shrink in today's dollars. Starts at 1.0.
-    social_security_threshold_scale_: f32,
+    social_security_threshold_scale_: f64,
 }
 
 impl<'a> Simulation<'a> {
@@ -249,10 +249,10 @@ impl<'a> Simulation<'a> {
     // percentages.
     pub fn run_simulation_one_month(
         &mut self,
-        us_equity_expected_returns: f32,
-        international_equity_expected_returns: f32,
-        bonds_expected_returns: f32,
-        inflation: f32,
+        us_equity_expected_returns: f64,
+        international_equity_expected_returns: f64,
+        bonds_expected_returns: f64,
+        inflation: f64,
     ) -> Result<bool, String> {
         let date = self.current_date_;
         let infos = &self.simulation_results_.retirees;
@@ -287,7 +287,7 @@ impl<'a> Simulation<'a> {
             .zip(alive.iter())
             .filter(|(info, &is_alive)| !is_alive && info.social_security_date < info.death_date)
             .map(|(info, _)| info.social_security_income)
-            .fold(0.0, f32::max);
+            .fold(0.0, f64::max);
         let mut social_security = 0.0;
         for (i, info) in infos.iter().enumerate() {
             if alive[i] {
@@ -296,7 +296,7 @@ impl<'a> Simulation<'a> {
                 } else {
                     0.0
                 };
-                social_security += f32::max(own_benefit, survivor_benefit);
+                social_security += f64::max(own_benefit, survivor_benefit);
             }
         }
 
@@ -330,7 +330,7 @@ impl<'a> Simulation<'a> {
         } else {
             self.expenses_
         };
-        let withdrawals = f32::max(expenses - income, 0.0);
+        let withdrawals = f64::max(expenses - income, 0.0);
 
         // tax on income and withdrawals, using the filing status for the
         // number of retirees alive. Withdrawals are taxed as ordinary income.
@@ -347,11 +347,11 @@ impl<'a> Simulation<'a> {
         let tax_rules = TaxRules {
             tax_levels: &tax_table.tax_levels,
             standard_deduction: tax_table.standard_deduction
-                + tax_table.additional_deduction_65_or_older * num_65_or_older as f32,
+                + tax_table.additional_deduction_65_or_older * num_65_or_older as f64,
             social_security_base: tax_table.social_security_base * scale,
             social_security_adjusted_base: tax_table.social_security_adjusted_base * scale,
         };
-        let surplus = f32::max(income - expenses, 0.0);
+        let surplus = f64::max(income - expenses, 0.0);
         let (taxes, tax_rate) = tax_rules.taxes_with_withdrawals(
             social_security,
             taxable_income + withdrawals,
@@ -377,7 +377,7 @@ impl<'a> Simulation<'a> {
         );
         self.sum_of_returns_ += annualized_return;
         self.simulation_results_.average_return =
-            self.sum_of_returns_ / (self.simulation_results_.monthly_snapshot.len() as f32 + 1.0);
+            self.sum_of_returns_ / (self.simulation_results_.monthly_snapshot.len() as f64 + 1.0);
 
         let monthly_balance = MonthlySnapshot {
             date: self.current_date_,
@@ -464,7 +464,7 @@ mod tests {
     }
 
     // 2026 married filing jointly brackets
-    const STANDARD_DEDUCTION: f32 = 32200.0;
+    const STANDARD_DEDUCTION: f64 = 32200.0;
 
     fn brackets() -> Vec<TaxLevel> {
         [
@@ -483,7 +483,7 @@ mod tests {
 
     // returns (annual tax, marginal rate) for an annual gross income with no
     // social security
-    fn annual_taxes(annual_income: f32) -> (f32, f32) {
+    fn annual_taxes(annual_income: f64) -> (f64, f64) {
         let brackets = brackets();
         let rules = married_rules(&brackets);
         let (monthly_tax, rate) = rules.taxes(0.0, annual_income / 12.0);
@@ -499,7 +499,7 @@ mod tests {
         }
     }
 
-    fn assert_close(actual: f32, expected: f32) {
+    fn assert_close(actual: f64, expected: f64) {
         assert!(
             (actual - expected).abs() < 0.5,
             "expected {expected}, got {actual}"
@@ -562,7 +562,7 @@ mod tests {
 
     // a retiree who is 60 on the start date, with no social security, pension
     // or other income
-    fn test_retiree(retirement_age: u32, salary_annual: f32) -> crate::Retiree {
+    fn test_retiree(retirement_age: u32, salary_annual: f64) -> crate::Retiree {
         crate::Retiree {
             name: "Test".to_string(),
             date_of_birth: start_date()
@@ -583,7 +583,7 @@ mod tests {
     }
 
     // input with zero returns and no taxes, so balances are easy to predict
-    fn test_input(retirees: Vec<crate::Retiree>, monthly_expenses: f32) -> Input {
+    fn test_input(retirees: Vec<crate::Retiree>, monthly_expenses: f64) -> Input {
         let all_bonds = crate::portfolio::Allocation {
             us_equities: 0.0,
             international: 0.0,
@@ -632,7 +632,7 @@ mod tests {
         );
     }
 
-    fn flat_tax_table(standard_deduction: f32, rate: f32) -> crate::TaxTable {
+    fn flat_tax_table(standard_deduction: f64, rate: f64) -> crate::TaxTable {
         crate::TaxTable {
             standard_deduction,
             additional_deduction_65_or_older: 0.0,
@@ -644,7 +644,7 @@ mod tests {
     }
 
     // flat tax with no standard deduction, the same for every filing status
-    fn flat_tax(input: &mut Input, rate: f32) {
+    fn flat_tax(input: &mut Input, rate: f64) {
         input.tax_rates.married_filing_jointly = flat_tax_table(0.0, rate);
         input.tax_rates.single = flat_tax_table(0.0, rate);
     }
@@ -692,7 +692,7 @@ mod tests {
             .collect();
         assert!(pre_retirement.len() > 12);
         for (i, snapshot) in pre_retirement.iter().enumerate() {
-            assert_eq!(snapshot.balance, 1_000_000.0 + 1000.0 * (i + 1) as f32);
+            assert_eq!(snapshot.balance, 1_000_000.0 + 1000.0 * (i + 1) as f64);
         }
     }
 
@@ -841,7 +841,7 @@ mod tests {
         // more income should never mean less tax
         let mut previous = 0.0;
         for income in (0..2_000_000).step_by(5000) {
-            let (tax, _) = annual_taxes(income as f32);
+            let (tax, _) = annual_taxes(income as f64);
             assert!(tax >= previous, "tax dropped at income {income}");
             previous = tax;
         }
@@ -947,7 +947,7 @@ mod tests {
 
     // a single retiree collecting $4000/month of social security from 62,
     // with provisional income of 24,000 just under the 25,000 base
-    fn social_security_only_input(inflation: f32) -> Input {
+    fn social_security_only_input(inflation: f64) -> Input {
         let mut retiree = test_retiree(60, 0.0);
         retiree.social_security_age = 62;
         retiree.social_security_amount_early = 4000.0;
@@ -974,7 +974,7 @@ mod tests {
         // both thresholds shrink: after almost 5 years of 10% inflation,
         // provisional income is over the adjusted base
         let months = results.monthly_snapshot.len() - 1;
-        let scale = 1.1f32.powf(-(months as f32) / 12.0);
+        let scale = 1.1f64.powf(-(months as f64) / 12.0);
         let (base, adjusted_base) = (25000.0 * scale, 34000.0 * scale);
         assert!(adjusted_base < 24000.0);
         let taxable = taxable_social_security(48000.0, 0.0, base, adjusted_base);

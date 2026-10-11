@@ -14,16 +14,16 @@ use std::io::BufRead;
 #[derive(Debug, Default)]
 struct HistoricalReturnsOneYear {
     year: u32,
-    inflation: f32,
+    inflation: f64,
 
     // all returns are real returns (after inflation)
-    sp500return: f32,
-    tbill3month: f32,
-    tbill10year: f32,
-    corp_bonds: f32,
-    real_estate: f32,
-    gold: f32,
-    international: Option<f32>,
+    sp500return: f64,
+    tbill3month: f64,
+    tbill10year: f64,
+    corp_bonds: f64,
+    real_estate: f64,
+    gold: f64,
+    international: Option<f64>,
 }
 
 #[allow(dead_code)]
@@ -38,14 +38,14 @@ fn str_to_u32(s: &str) -> Result<u32, String> {
         .map_err(|v| format!("Invalid integer: {}", v))
 }
 
-fn str_to_f32(s: &str) -> Result<f32, String> {
+fn str_to_f64(s: &str) -> Result<f64, String> {
     s.trim()
-        .parse::<f32>()
+        .parse::<f64>()
         .map_err(|v| format!("Invalid floating point: {}", v))
 }
 
-fn str_to_f32_optional(s: &str) -> Option<f32> {
-    s.trim().parse::<f32>().ok()
+fn str_to_f64_optional(s: &str) -> Option<f64> {
+    s.trim().parse::<f64>().ok()
 }
 
 fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturnsOneYear {
@@ -68,7 +68,7 @@ fn calculate_averages(returns: &[HistoricalReturnsOneYear]) -> HistoricalReturns
     }
 
     let mut averages = HistoricalReturnsOneYear::default();
-    let count = returns.len() as f32;
+    let count = returns.len() as f64;
     if count > 0.0 {
         averages.inflation = totals.inflation / count;
         averages.sp500return = totals.sp500return / count;
@@ -112,14 +112,14 @@ fn parse_returns_from<R: BufRead>(reader: R) -> Result<HistoricalReturns, String
         }
 
         let year = str_to_u32(toks[0])?;
-        let inflation = str_to_f32(toks[8])? * 100.0;
-        let sp500return = str_to_f32(toks[9])? * 100.0;
-        let tbill3month = str_to_f32(toks[10])? * 100.0;
-        let tbill10year = str_to_f32(toks[11])? * 100.0;
-        let corp_bonds = str_to_f32(toks[12])? * 100.0;
-        let real_estate = str_to_f32(toks[13])? * 100.0;
-        let gold = str_to_f32(toks[14])? * 100.0;
-        let international = str_to_f32_optional(toks[15]).map(|v| v * 100.0);
+        let inflation = str_to_f64(toks[8])? * 100.0;
+        let sp500return = str_to_f64(toks[9])? * 100.0;
+        let tbill3month = str_to_f64(toks[10])? * 100.0;
+        let tbill10year = str_to_f64(toks[11])? * 100.0;
+        let corp_bonds = str_to_f64(toks[12])? * 100.0;
+        let real_estate = str_to_f64(toks[13])? * 100.0;
+        let gold = str_to_f64(toks[14])? * 100.0;
+        let international = str_to_f64_optional(toks[15]).map(|v| v * 100.0);
 
         let returns = HistoricalReturnsOneYear {
             year,
