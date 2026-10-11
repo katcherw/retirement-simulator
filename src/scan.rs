@@ -16,7 +16,7 @@ pub struct Scenario {
 }
 
 impl Scenario {
-    pub fn ending_balance(&self) -> f32 {
+    pub fn ending_balance(&self) -> f64 {
         self.last_snapshot().balance
     }
 
@@ -30,7 +30,7 @@ impl Scenario {
 struct ScenarioSortingInfo {
     index: usize,
     num_months: usize,
-    ending_balance: f32,
+    ending_balance: f64,
 }
 
 // The results of all the scenarios in the scan
@@ -56,7 +56,7 @@ impl ScanResults {
         }
     }
 
-    pub fn add_sorting_info(&mut self, index: usize, num_months: usize, ending_balance: f32) {
+    pub fn add_sorting_info(&mut self, index: usize, num_months: usize, ending_balance: f64) {
         self.sorting_info.push(ScenarioSortingInfo {
             index,
             num_months,
@@ -78,15 +78,15 @@ impl ScanResults {
 
     // the scenario at the given percentile (0 = worst, 100 = best). Must be
     // called after sort_results.
-    pub fn scenario_at_percentile(&self, percentile: f32) -> &Scenario {
+    pub fn scenario_at_percentile(&self, percentile: f64) -> &Scenario {
         let last = self.sorted_indices.len() - 1;
-        let position = (percentile / 100.0 * last as f32).round() as usize;
+        let position = (percentile / 100.0 * last as f64).round() as usize;
         &self.scenario_results[self.sorted_indices[position.min(last)]]
     }
 
     // ending balance at the given percentile (0 = worst, 100 = best).
     // Scenarios where the money ran out count as $0.
-    pub fn ending_balance_percentile(&self, percentile: f32) -> f32 {
+    pub fn ending_balance_percentile(&self, percentile: f64) -> f64 {
         self.scenario_at_percentile(percentile).ending_balance()
     }
 
@@ -130,7 +130,7 @@ mod tests {
 
     // a scenario starting in January 2026 that lasts the given number of
     // months, ending with the given balance
-    fn scenario(num_months: u32, ending_balance: f32) -> Scenario {
+    fn scenario(num_months: u32, ending_balance: f64) -> Scenario {
         let mut simulation_results = simulate::SimulationResults::default();
         for month in 0..num_months {
             let is_last = month == num_months - 1;

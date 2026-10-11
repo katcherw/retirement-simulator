@@ -23,9 +23,9 @@ pub struct ReturnsSampler {
 impl ReturnsSampler {
     pub fn new(portfolio: &Portfolio) -> Result<Self, String> {
         let standard_deviations = [
-            portfolio.us_equity_standard_deviation as f64,
-            portfolio.international_equity_standard_deviation as f64,
-            portfolio.bonds_standard_deviation as f64,
+            portfolio.us_equity_standard_deviation,
+            portfolio.international_equity_standard_deviation,
+            portfolio.bonds_standard_deviation,
         ];
         if standard_deviations
             .iter()
@@ -34,9 +34,9 @@ impl ReturnsSampler {
             return Err("standard deviations can't be negative".to_string());
         }
 
-        let us_international = portfolio.us_international_correlation as f64;
-        let us_bonds = portfolio.us_bonds_correlation as f64;
-        let international_bonds = portfolio.international_bonds_correlation as f64;
+        let us_international = portfolio.us_international_correlation;
+        let us_bonds = portfolio.us_bonds_correlation;
+        let international_bonds = portfolio.international_bonds_correlation;
         if [us_international, us_bonds, international_bonds]
             .iter()
             .any(|v| !(-1.0..=1.0).contains(v))
@@ -50,9 +50,9 @@ impl ReturnsSampler {
         ];
 
         let geometric_means = [
-            portfolio.us_equity_expected_returns as f64,
-            portfolio.international_equity_expected_returns as f64,
-            portfolio.bonds_expected_returns as f64,
+            portfolio.us_equity_expected_returns,
+            portfolio.international_equity_expected_returns,
+            portfolio.bonds_expected_returns,
         ];
 
         Ok(ReturnsSampler {
@@ -63,7 +63,7 @@ impl ReturnsSampler {
     }
 
     // returns annual returns (percentages) for [us, international, bonds]
-    pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> [f32; 3] {
+    pub fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> [f64; 3] {
         // independent standard normal values, mixed by the cholesky matrix to
         // give standard normal values with the desired correlations
         let independent: [f64; 3] = [
@@ -74,7 +74,7 @@ impl ReturnsSampler {
         let mut returns = [0.0; 3];
         for (i, row) in self.cholesky.iter().enumerate() {
             let correlated: f64 = row.iter().zip(independent.iter()).map(|(l, z)| l * z).sum();
-            returns[i] = (self.means[i] + self.standard_deviations[i] * correlated) as f32;
+            returns[i] = self.means[i] + self.standard_deviations[i] * correlated;
         }
         returns
     }
@@ -189,7 +189,7 @@ mod tests {
     use super::*;
     use crate::portfolio::Allocation;
 
-    fn portfolio(us_international: f32, us_bonds: f32, international_bonds: f32) -> Portfolio {
+    fn portfolio(us_international: f64, us_bonds: f64, international_bonds: f64) -> Portfolio {
         let allocation = Allocation {
             us_equities: 50.0,
             international: 25.0,
@@ -300,7 +300,7 @@ mod tests {
         let mut samples: [Vec<f64>; 3] = Default::default();
         for _ in 0..count {
             for (column, value) in samples.iter_mut().zip(sampler.sample(&mut rng)) {
-                column.push(value as f64);
+                column.push(value);
             }
         }
         samples
