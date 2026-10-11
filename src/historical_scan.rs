@@ -169,13 +169,12 @@ impl HistoricalScan {
 
         'outer: loop {
             for _month in 0..12 {
-                let international = self.historical_returns.annual_returns[index]
-                    .international
-                    .unwrap_or(self.historical_returns.annual_returns[index].sp500return);
+                let year = &self.historical_returns.annual_returns[index];
                 let is_finished = simulation.run_simulation_one_month(
-                    self.historical_returns.annual_returns[index].sp500return,
-                    international,
-                    self.historical_returns.annual_returns[index].tbill10year,
+                    year.sp500return,
+                    year.international.unwrap_or(year.sp500return),
+                    year.tbill10year,
+                    year.inflation,
                 )?;
                 if is_finished {
                     break 'outer;

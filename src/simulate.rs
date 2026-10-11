@@ -43,24 +43,109 @@ pub struct SimulationResults {
     pub average_return: f32,
 }
 
-// returns the monthly tax and the marginal tax rate (percentage) for the given
-// monthly income. Tax levels must be sorted by income, with each level's income
-// being the lower bound of its bracket.
-fn get_taxes(monthly_income: f32, standard_deduction: f32, tax_rates: &[TaxLevel]) -> (f32, f32) {
-    let taxable_income = (monthly_income * 12.0 - standard_deduction).max(0.0);
+// returns the annual tax and the marginal tax rate (percentage) for the given
+// annual taxable income. Tax levels must be sorted by income, with each
+// level's income being the lower bound of its bracket.
+fn bracket_taxes(taxable_income: f32, tax_levels: &[TaxLevel]) -> (f32, f32) {
     let mut annual_tax: f32 = 0.0;
     let mut marginal_rate: f32 = 0.0;
 
-    for (i, level) in tax_rates.iter().enumerate() {
+    for (i, level) in tax_levels.iter().enumerate() {
         if taxable_income <= level.income {
             break;
         }
-        let upper = tax_rates.get(i + 1).map_or(f32::MAX, |next| next.income);
+        let upper = tax_levels.get(i + 1).map_or(f32::MAX, |next| next.income);
         annual_tax += (taxable_income.min(upper) - level.income) * level.rate / 100.0;
         marginal_rate = level.rate;
     }
 
-    (annual_tax / 12.0, marginal_rate)
+    (annual_tax, marginal_rate)
+}
+
+// returns the taxable part of annual social security benefits, following the
+// IRS worksheet: provisional income is all other income plus half of the
+// benefits. Above the base amount, half of the excess is taxable (up to half
+// of the benefits). Above the adjusted base amount, 85% of that excess is
+// added, up to 85% of the benefits.
+fn taxable_social_security(benefits: f32, other_income: f32, base: f32, adjusted_base: f32) -> f32 {
+    let provisional_income = other_income + benefits / 2.0;
+    if provisional_income <= base {
+        0.0
+    } else if provisional_income <= adjusted_base {
+        f32::min((provisional_income - base) / 2.0, benefits / 2.0)
+    } else {
+        let below_adjusted_base = f32::min((adjusted_base - base) / 2.0, benefits / 2.0);
+        f32::min(
+            (provisional_income - adjusted_base) * 0.85 + below_adjusted_base,
+            benefits * 0.85,
+        )
+    }
+}
+
+// the tax rules for one month: the filing status's table, with the standard
+// deduction and social security thresholds adjusted for the household
+struct TaxRules<'a> {
+    tax_levels: &'a [TaxLevel],
+    standard_deduction: f32,
+    social_security_base: f32,
+    social_security_adjusted_base: f32,
+}
+
+impl TaxRules<'_> {
+    // returns the monthly tax and the marginal tax bracket (percentage) for
+    // monthly social security benefits and other taxable income
+    fn taxes(&self, social_security: f32, other_income: f32) -> (f32, f32) {
+        let social_security = social_security * 12.0;
+        let other_income = other_income * 12.0;
+        let taxable_income = other_income
+            + taxable_social_security(
+                social_security,
+                other_income,
+                self.social_security_base,
+                self.social_security_adjusted_base,
+            );
+        let taxable_income = (taxable_income - self.standard_deduction).max(0.0);
+        let (annual_tax, marginal_rate) = bracket_taxes(taxable_income, self.tax_levels);
+        (annual_tax / 12.0, marginal_rate)
+    }
+
+    // taxes are paid first from any income left over after expenses (the
+    // surplus). The rest must be withdrawn, but these withdrawals are also
+    // taxed, causing more withdrawals, and more taxes and so on. Extra
+    // income can also make more social security taxable, so there is no
+    // simple formula. Instead, search for the extra withdrawal that exactly
+    // pays the taxes not covered by the surplus. Returns the monthly tax
+    // (including the tax on the extra withdrawal) and the marginal bracket.
+    fn taxes_with_withdrawals(
+        &self,
+        social_security: f32,
+        other_income: f32,
+        surplus: f32,
+    ) -> (f32, f32) {
+        let shortfall = |extra: f32| self.taxes(social_security, other_income + extra).0 - surplus;
+        if shortfall(0.0) <= 0.0 {
+            return self.taxes(social_security, other_income);
+        }
+
+        // the effective marginal rate is below 100% (tax rates are below 50%,
+        // and at most 1.85 times that with social security), so the shortfall
+        // grows more slowly than the withdrawal and there is a solution
+        let mut low = 0.0;
+        let mut high = shortfall(0.0);
+        while shortfall(high) > high {
+            low = high;
+            high *= 2.0;
+        }
+        for _ in 0..40 {
+            let middle = (low + high) / 2.0;
+            if shortfall(middle) > middle {
+                low = middle;
+            } else {
+                high = middle;
+            }
+        }
+        self.taxes(social_security, other_income + high)
+    }
 }
 
 // this is an estimate. The IRS has a big table for retirement income based on
@@ -102,6 +187,9 @@ pub struct Simulation<'a> {
     portfolio_: Portfolio,
     expenses_: f32,
     sum_of_returns_: f32,
+    // the social security tax thresholds aren't adjusted for inflation, so
+    // they shrink in today's dollars. Starts at 1.0.
+    social_security_threshold_scale_: f32,
 }
 
 impl<'a> Simulation<'a> {
@@ -153,15 +241,18 @@ impl<'a> Simulation<'a> {
             portfolio_: portfolio,
             expenses_: expenses,
             sum_of_returns_: 0.0,
+            social_security_threshold_scale_: 1.0,
         }
     }
 
-    // returns true if simulation finished
+    // returns true if simulation finished. Returns and inflation are annual
+    // percentages.
     pub fn run_simulation_one_month(
         &mut self,
         us_equity_expected_returns: f32,
         international_equity_expected_returns: f32,
         bonds_expected_returns: f32,
+        inflation: f32,
     ) -> Result<bool, String> {
         let date = self.current_date_;
         let infos = &self.simulation_results_.retirees;
@@ -197,7 +288,7 @@ impl<'a> Simulation<'a> {
             .filter(|(info, &is_alive)| !is_alive && info.social_security_date < info.death_date)
             .map(|(info, _)| info.social_security_income)
             .fold(0.0, f32::max);
-        let mut income = 0.0;
+        let mut social_security = 0.0;
         for (i, info) in infos.iter().enumerate() {
             if alive[i] {
                 let own_benefit = if date > info.social_security_date {
@@ -205,15 +296,13 @@ impl<'a> Simulation<'a> {
                 } else {
                     0.0
                 };
-                income += f32::max(own_benefit, survivor_benefit);
+                social_security += f32::max(own_benefit, survivor_benefit);
             }
         }
 
-        // social security is usually 85% taxable (ignore lower incomes)
-        let mut taxable_income = income * 0.85;
-
-        income += wages;
-        taxable_income += wages;
+        // all income other than social security is fully taxable
+        let mut income = social_security + wages;
+        let mut taxable_income = wages;
 
         // pension income, before or after retirement, until the retiree dies
         for (i, retiree) in self.input_.retirees.iter().enumerate() {
@@ -243,22 +332,31 @@ impl<'a> Simulation<'a> {
         };
         let withdrawals = f32::max(expenses - income, 0.0);
 
-        // tax on income and withdrawals. tax rate on ss will be higher, but ignore that for now
+        // tax on income and withdrawals, using the filing status for the
+        // number of retirees alive. Withdrawals are taxed as ordinary income.
         let num_alive = alive.iter().filter(|&&a| a).count();
+        let num_65_or_older = self
+            .input_
+            .retirees
+            .iter()
+            .enumerate()
+            .filter(|&(i, retiree)| alive[i] && date >= add_years(&retiree.date_of_birth, 65))
+            .count();
         let tax_table = self.input_.tax_rates.table_for(num_alive);
-        let (base_taxes, tax_rate) = get_taxes(
-            withdrawals + taxable_income,
-            tax_table.standard_deduction,
-            &tax_table.tax_levels,
-        );
-
-        // taxes are paid first from any income left over after expenses. The
-        // rest must be withdrawn, but these withdrawals cost more taxes,
-        // causing more withdrawals, and more taxes and so on. This can be
-        // calculated as an infinite power series.
+        let scale = self.social_security_threshold_scale_;
+        let tax_rules = TaxRules {
+            tax_levels: &tax_table.tax_levels,
+            standard_deduction: tax_table.standard_deduction
+                + tax_table.additional_deduction_65_or_older * num_65_or_older as f32,
+            social_security_base: tax_table.social_security_base * scale,
+            social_security_adjusted_base: tax_table.social_security_adjusted_base * scale,
+        };
         let surplus = f32::max(income - expenses, 0.0);
-        let taxes =
-            base_taxes + f32::max(base_taxes - surplus, 0.0) * tax_rate / (100.0 - tax_rate);
+        let (taxes, tax_rate) = tax_rules.taxes_with_withdrawals(
+            social_security,
+            taxable_income + withdrawals,
+            surplus,
+        );
 
         let net_cash_flow = income - expenses - taxes;
         let mut withdrawal_rate = 0.0;
@@ -300,6 +398,7 @@ impl<'a> Simulation<'a> {
             .current_date_
             .checked_add_months(chrono::Months::new(1))
             .unwrap();
+        self.social_security_threshold_scale_ /= (1.0 + inflation / 100.0).powf(1.0 / 12.0);
 
         Ok(self.portfolio_.balance == 0.0)
     }
@@ -313,6 +412,7 @@ pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
             input.portfolio.us_equity_expected_returns,
             input.portfolio.international_equity_expected_returns,
             input.portfolio.bonds_expected_returns,
+            input.tax_rates.expected_inflation,
         )?;
 
         if is_finished {
@@ -381,10 +481,22 @@ mod tests {
         .collect()
     }
 
-    // returns (annual tax, marginal rate) for an annual gross income
+    // returns (annual tax, marginal rate) for an annual gross income with no
+    // social security
     fn annual_taxes(annual_income: f32) -> (f32, f32) {
-        let (monthly_tax, rate) = get_taxes(annual_income / 12.0, STANDARD_DEDUCTION, &brackets());
+        let brackets = brackets();
+        let rules = married_rules(&brackets);
+        let (monthly_tax, rate) = rules.taxes(0.0, annual_income / 12.0);
         (monthly_tax * 12.0, rate)
+    }
+
+    fn married_rules(brackets: &[TaxLevel]) -> TaxRules<'_> {
+        TaxRules {
+            tax_levels: brackets,
+            standard_deduction: STANDARD_DEDUCTION,
+            social_security_base: 32000.0,
+            social_security_adjusted_base: 44000.0,
+        }
     }
 
     fn assert_close(actual: f32, expected: f32) {
@@ -498,6 +610,7 @@ mod tests {
                 survivor_percent: 100.0,
             },
             tax_rates: crate::TaxRates {
+                expected_inflation: 0.0,
                 married_filing_jointly: flat_tax_table(1.0e9, 0.0),
                 single: flat_tax_table(1.0e9, 0.0),
             },
@@ -522,6 +635,10 @@ mod tests {
     fn flat_tax_table(standard_deduction: f32, rate: f32) -> crate::TaxTable {
         crate::TaxTable {
             standard_deduction,
+            additional_deduction_65_or_older: 0.0,
+            // social security is never taxed
+            social_security_base: 1.0e9,
+            social_security_adjusted_base: 1.0e9,
             tax_levels: vec![TaxLevel { income: 0.0, rate }],
         }
     }
@@ -728,5 +845,143 @@ mod tests {
             assert!(tax >= previous, "tax dropped at income {income}");
             previous = tax;
         }
+    }
+
+    #[test]
+    fn test_social_security_untaxed_below_base() {
+        // provisional income 20,000 + 24,000 / 2 = 32,000
+        assert_eq!(
+            taxable_social_security(24000.0, 20000.0, 32000.0, 44000.0),
+            0.0
+        );
+    }
+
+    #[test]
+    fn test_social_security_half_taxed_between_bases() {
+        // single: provisional income 20,000 + 10,000 = 30,000, half of the
+        // 5,000 over the base is taxable
+        assert_close(
+            taxable_social_security(20000.0, 20000.0, 25000.0, 34000.0),
+            2500.0,
+        );
+        // limited to half of the benefits
+        assert_close(
+            taxable_social_security(4000.0, 31000.0, 25000.0, 34000.0),
+            2000.0,
+        );
+    }
+
+    #[test]
+    fn test_social_security_85_percent_above_adjusted_base() {
+        // married: provisional income 40,000 + 15,000 = 55,000.
+        // 85% of 11,000 over the adjusted base, plus half of the 12,000
+        // between the bases
+        assert_close(
+            taxable_social_security(30000.0, 40000.0, 32000.0, 44000.0),
+            9350.0 + 6000.0,
+        );
+        // limited to 85% of the benefits
+        assert_close(
+            taxable_social_security(40000.0, 200000.0, 32000.0, 44000.0),
+            34000.0,
+        );
+    }
+
+    #[test]
+    fn test_taxes_include_taxable_social_security() {
+        // 30,000 of social security and 40,000 of other income: 15,350 of
+        // social security is taxable, so taxable income is 55,350 - 32,200
+        let brackets = brackets();
+        let rules = married_rules(&brackets);
+        let (tax, rate) = rules.taxes(30000.0 / 12.0, 40000.0 / 12.0);
+        assert_close(tax * 12.0, 2315.0);
+        assert_eq!(rate, 10.0);
+    }
+
+    #[test]
+    fn test_withdrawals_cover_taxes_with_social_security() {
+        // in the range where each extra dollar makes 85 cents of social
+        // security taxable, the extra withdrawal must still exactly pay the
+        // taxes that the surplus doesn't cover
+        let brackets = brackets();
+        let rules = married_rules(&brackets);
+        let social_security = 3000.0;
+        let other_income = 4000.0;
+        let surplus = 100.0;
+        let (taxes, _) = rules.taxes_with_withdrawals(social_security, other_income, surplus);
+        let extra = taxes - surplus;
+        assert!(extra > 0.0);
+        let (expected, _) = rules.taxes(social_security, other_income + extra);
+        assert!((taxes - expected).abs() < 0.01, "{taxes} vs {expected}");
+        // more than the 12% bracket alone would add
+        let (base_taxes, _) = rules.taxes(social_security, other_income);
+        assert!(taxes - base_taxes > (base_taxes - surplus) * 12.0 / 88.0 + 1.0);
+    }
+
+    #[test]
+    fn test_additional_deduction_at_65() {
+        // $1000/month pension, 10% flat tax, $6000 standard deduction plus
+        // $2400 at 65: $50/month before, $30/month after
+        let mut retiree = test_retiree(60, 0.0);
+        retiree.life_expectency = 66;
+        retiree.pension_monthly_income = 1000.0;
+        let mut input = test_input(vec![retiree], 0.0);
+        input.tax_rates.single = flat_tax_table(6000.0, 10.0);
+        input.tax_rates.single.additional_deduction_65_or_older = 2400.0;
+        let results = run_simulation(&input).unwrap();
+        let birthday_65 = add_years(&input.retirees[0].date_of_birth, 65);
+        for snapshot in results.monthly_snapshot.iter() {
+            let expected = if snapshot.date >= birthday_65 {
+                30.0
+            } else {
+                50.0
+            };
+            assert!(
+                (snapshot.taxes - expected).abs() < 0.01,
+                "on {}: {}",
+                snapshot.date,
+                snapshot.taxes
+            );
+        }
+    }
+
+    // a single retiree collecting $4000/month of social security from 62,
+    // with provisional income of 24,000 just under the 25,000 base
+    fn social_security_only_input(inflation: f32) -> Input {
+        let mut retiree = test_retiree(60, 0.0);
+        retiree.social_security_age = 62;
+        retiree.social_security_amount_early = 4000.0;
+        let mut input = test_input(vec![retiree], 0.0);
+        input.tax_rates.expected_inflation = inflation;
+        input.tax_rates.single = flat_tax_table(0.0, 10.0);
+        input.tax_rates.single.social_security_base = 25000.0;
+        input.tax_rates.single.social_security_adjusted_base = 34000.0;
+        input
+    }
+
+    #[test]
+    fn test_social_security_thresholds_shrink_with_inflation() {
+        let input = social_security_only_input(0.0);
+        let results = run_simulation(&input).unwrap();
+        assert!(results.monthly_snapshot.iter().all(|s| s.taxes == 0.0));
+
+        // with 10% inflation the base is below 24,000 in today's dollars
+        // within a year, so some social security becomes taxable
+        let input = social_security_only_input(10.0);
+        let results = run_simulation(&input).unwrap();
+        let last = results.monthly_snapshot.last().unwrap();
+        assert!(last.taxes > 0.0);
+        // both thresholds shrink: after almost 5 years of 10% inflation,
+        // provisional income is over the adjusted base
+        let months = results.monthly_snapshot.len() - 1;
+        let scale = 1.1f32.powf(-(months as f32) / 12.0);
+        let (base, adjusted_base) = (25000.0 * scale, 34000.0 * scale);
+        assert!(adjusted_base < 24000.0);
+        let taxable = taxable_social_security(48000.0, 0.0, base, adjusted_base);
+        assert!(
+            (last.taxes * 12.0 - taxable * 0.1).abs() < 1.0,
+            "{}",
+            last.taxes
+        );
     }
 }
