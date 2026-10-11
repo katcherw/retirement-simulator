@@ -88,6 +88,9 @@ struct Input {
     portfolio: Portfolio,
     expenses: Expenses,
     tax_rates: TaxRates,
+    // first month of the simulations: today when running the program, a
+    // fixed date in tests so results don't depend on when they run
+    start_date: NaiveDate,
 }
 
 fn parse_string(yaml: &yaml_rust::Yaml, field_name: &str) -> Result<String, String> {
@@ -358,11 +361,10 @@ fn validate_input(input: &Input) -> Result<(), String> {
     if input.retirees.is_empty() {
         return Err("at least one retiree is required".to_string());
     }
-    let today = chrono::Utc::now().naive_utc().date();
     if input
         .retirees
         .iter()
-        .all(|r| utils::get_age(&r.date_of_birth, &today) > r.life_expectency)
+        .all(|r| utils::get_age(&r.date_of_birth, &input.start_date) > r.life_expectency)
     {
         return Err("every retiree is already past their life expectancy".to_string());
     }
@@ -393,7 +395,7 @@ fn validate_input(input: &Input) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_input_str(file_str: &str) -> Result<Input, String> {
+fn parse_input_str(file_str: &str, start_date: NaiveDate) -> Result<Input, String> {
     let docs = YamlLoader::load_from_str(file_str).map_err(|e| format!("Invalid YAML: {e}"))?;
     let doc = docs.first().ok_or("input file is empty")?;
 
@@ -407,15 +409,16 @@ fn parse_input_str(file_str: &str) -> Result<Input, String> {
         portfolio,
         expenses,
         tax_rates,
+        start_date,
     };
 
     validate_input(&input)?;
     Ok(input)
 }
 
-fn parse_input_file(fname: &str) -> Result<Input, String> {
+fn parse_input_file(fname: &str, start_date: NaiveDate) -> Result<Input, String> {
     let file_str = fs::read_to_string(fname).map_err(|e| format!("Can't read {fname}: {e}"))?;
-    parse_input_str(&file_str)
+    parse_input_str(&file_str, start_date)
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -605,19 +608,70 @@ fn print_historical_result_details(results: &scan::ScanResults) {
     );
 }
 
+///////////////////////////////////////////////////////////////////////////
+// Command line
+///////////////////////////////////////////////////////////////////////////
+
+#[derive(Debug, PartialEq)]
+struct Args {
+    input_file: String,
+    // random seed for the monte carlo simulation, to repeat a previous run
+    seed: Option<u64>,
+}
+
+const USAGE: &str = "Usage: retirement-simulator [--seed <number>] <input file>
+Example: retirement-simulator retirement.yaml
+
+Options:
+    --seed <number>   Random seed for the Monte Carlo simulation. Running again
+                      with the same seed gives the same results.";
+
+// args excludes the program name
+fn parse_args(args: &[String]) -> Result<Args, String> {
+    let mut input_file = None;
+    let mut seed = None;
+
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        if arg == "--seed" {
+            let value = args.next().ok_or("--seed needs a number")?;
+            let value = value
+                .parse::<u64>()
+                .map_err(|_| format!("Invalid seed: {value}"))?;
+            seed = Some(value);
+        } else if arg.starts_with('-') {
+            return Err(format!("Unknown option: {arg}"));
+        } else if input_file.is_some() {
+            return Err("Only one input file can be given".to_string());
+        } else {
+            input_file = Some(arg.clone());
+        }
+    }
+
+    Ok(Args {
+        input_file: input_file.ok_or("No input file given")?,
+        seed,
+    })
+}
+
 fn main() {
     println!("Retirement Simulator!!!");
     println!("Version {}", env!("CARGO_PKG_VERSION"));
     println!();
 
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        println!("Usage: retirement-simulator <input file>");
-        println!("Example: retirement-simulator retirement.yaml");
-        return;
-    }
+    let args: Vec<String> = env::args().skip(1).collect();
+    let args = match parse_args(&args) {
+        Ok(v) => v,
+        Err(e) => {
+            println!("{e}");
+            println!();
+            println!("{USAGE}");
+            process::exit(1);
+        }
+    };
 
-    let input = parse_input_file(&args[1]);
+    let today = chrono::Local::now().date_naive();
+    let input = parse_input_file(&args.input_file, today);
     let input = match input {
         Ok(v) => v,
         Err(e) => {
@@ -657,7 +711,12 @@ fn main() {
     println!();
     println!("-= Monte Carlo Simulation =-");
     println!();
-    let mut monte_carlo_scan = MonteCarloScan::new();
+    // pick a random seed if none was given, and print it so the run can be
+    // repeated. Kept to 32 bits so it's easy to retype.
+    let seed = args.seed.unwrap_or_else(|| rand::random::<u32>() as u64);
+    println!("Random seed: {seed} (run with --seed {seed} to repeat these results)");
+    println!();
+    let mut monte_carlo_scan = MonteCarloScan::new(seed);
     let monte_carlo_results = run_scan(&input, &mut monte_carlo_scan).unwrap_or_else(|err| {
         println!("Error running monte carlo simulation: {}", err);
         process::exit(1);
@@ -675,6 +734,11 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // fixed start date so results don't depend on when the tests run
+    fn start_date() -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 1, 15).unwrap()
+    }
 
     fn parse_levels(levels_yaml: &str) -> Result<TaxTable, String> {
         let yaml = format!("single:\n  standard_deduction: 32200.0\n  levels:\n{levels_yaml}");
@@ -723,7 +787,7 @@ mod tests {
 
     #[test]
     fn test_parse_sample_input() {
-        let input = parse_input_file("input.yaml").unwrap();
+        let input = parse_input_file("input.yaml", start_date()).unwrap();
         let married = &input.tax_rates.married_filing_jointly;
         let single = &input.tax_rates.single;
         assert_eq!(married.tax_levels.len(), 7);
@@ -736,7 +800,7 @@ mod tests {
 
     #[test]
     fn test_tax_table_for_filing_status() {
-        let input = parse_input_file("input.yaml").unwrap();
+        let input = parse_input_file("input.yaml", start_date()).unwrap();
         let rates = &input.tax_rates;
         assert!(std::ptr::eq(
             rates.table_for(2),
@@ -757,7 +821,7 @@ mod tests {
     fn test_parse_requires_both_tax_tables() {
         let sample = fs::read_to_string("input.yaml").unwrap();
         let without_single = sample.split("    single:").next().unwrap();
-        let err = parse_input_str(without_single).unwrap_err();
+        let err = parse_input_str(without_single, start_date()).unwrap_err();
         assert!(err.contains("single block missing"), "{err}");
     }
 
@@ -765,7 +829,7 @@ mod tests {
     fn parse_modified_sample(from: &str, to: &str) -> Result<Input, String> {
         let sample = fs::read_to_string("input.yaml").unwrap();
         assert!(sample.contains(from), "sample input doesn't contain {from}");
-        parse_input_str(&sample.replacen(from, to, 1))
+        parse_input_str(&sample.replacen(from, to, 1), start_date())
     }
 
     #[test]
@@ -811,7 +875,7 @@ mod tests {
                 .filter(|line| !line.contains(&format!("{name}:")))
                 .map(|line| format!("{line}\n"))
                 .collect();
-            let err = parse_input_str(&without).unwrap_err();
+            let err = parse_input_str(&without, start_date()).unwrap_err();
             assert!(err.contains(name), "{err}");
         }
     }
@@ -846,12 +910,87 @@ mod tests {
 
     #[test]
     fn test_parse_errors_instead_of_panicking() {
-        assert!(parse_input_file("does-not-exist.yaml")
+        assert!(parse_input_file("does-not-exist.yaml", start_date())
             .unwrap_err()
             .contains("Can't read"));
-        assert!(parse_input_str("").unwrap_err().contains("empty"));
-        assert!(parse_input_str("retirees: [")
+        assert!(parse_input_str("", start_date())
+            .unwrap_err()
+            .contains("empty"));
+        assert!(parse_input_str("retirees: [", start_date())
             .unwrap_err()
             .contains("Invalid YAML"));
+    }
+
+    #[test]
+    fn test_validation_uses_start_date() {
+        // John Doe (born 1960) and Jane Doe (born 1964) both have a life
+        // expectancy of 90, so by 2056 they are both past it
+        let late = NaiveDate::from_ymd_opt(2056, 1, 1).unwrap();
+        let err = parse_input_file("input.yaml", late).unwrap_err();
+        assert!(err.contains("past their life expectancy"), "{err}");
+    }
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|v| v.to_string()).collect()
+    }
+
+    #[test]
+    fn test_parse_args() {
+        assert_eq!(
+            parse_args(&args(&["input.yaml"])).unwrap(),
+            Args {
+                input_file: "input.yaml".to_string(),
+                seed: None
+            }
+        );
+        assert_eq!(
+            parse_args(&args(&["--seed", "42", "input.yaml"])).unwrap(),
+            Args {
+                input_file: "input.yaml".to_string(),
+                seed: Some(42)
+            }
+        );
+        assert_eq!(
+            parse_args(&args(&["input.yaml", "--seed", "42"])).unwrap(),
+            Args {
+                input_file: "input.yaml".to_string(),
+                seed: Some(42)
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_args_errors() {
+        let error = |values: &[&str]| parse_args(&args(values)).unwrap_err();
+        assert!(error(&[]).contains("No input file"));
+        assert!(error(&["input.yaml", "--seed"]).contains("needs a number"));
+        assert!(error(&["input.yaml", "--seed", "abc"]).contains("Invalid seed"));
+        assert!(error(&["input.yaml", "--seed", "-1"]).contains("Invalid seed"));
+        assert!(error(&["--verbose", "input.yaml"]).contains("Unknown option"));
+        assert!(error(&["a.yaml", "b.yaml"]).contains("Only one input file"));
+    }
+
+    // ending balance of every monte carlo scenario, in the order they ran
+    fn monte_carlo_ending_balances(seed: u64) -> Vec<f32> {
+        use scan::Scannable;
+        let input = parse_input_file("input.yaml", start_date()).unwrap();
+        let results = MonteCarloScan::new(seed).run_scan(&input).unwrap();
+        results
+            .scenario_results
+            .iter()
+            .map(|s| s.ending_balance())
+            .collect()
+    }
+
+    #[test]
+    fn test_monte_carlo_same_seed_same_results() {
+        assert_eq!(
+            monte_carlo_ending_balances(42),
+            monte_carlo_ending_balances(42)
+        );
+        assert_ne!(
+            monte_carlo_ending_balances(42),
+            monte_carlo_ending_balances(43)
+        );
     }
 }

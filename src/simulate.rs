@@ -114,7 +114,7 @@ impl<'a> Simulation<'a> {
             .min_by_key(|r| add_years(&r.date_of_birth, r.retirement_age))
             .expect("at least one retiree");
         let retirement_date = add_years(&first_retiree.date_of_birth, first_retiree.retirement_age);
-        let current_date: NaiveDate = chrono::Utc::now().naive_utc().date();
+        let current_date = input.start_date;
 
         let mut simulation_results = SimulationResults {
             retirement_date,
@@ -442,12 +442,18 @@ mod tests {
         assert_eq!(rate, 37.0);
     }
 
-    // a retiree who is 60 today, with no social security, pension or other income
+    // fixed start date for the simulations, so results don't depend on when
+    // the tests run
+    fn start_date() -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 1, 15).unwrap()
+    }
+
+    // a retiree who is 60 on the start date, with no social security, pension
+    // or other income
     fn test_retiree(retirement_age: u32, salary_annual: f32) -> crate::Retiree {
-        let today = chrono::Utc::now().naive_utc().date();
         crate::Retiree {
             name: "Test".to_string(),
-            date_of_birth: today
+            date_of_birth: start_date()
                 .checked_sub_months(chrono::Months::new(60 * 12))
                 .unwrap(),
             retirement_age,
@@ -495,7 +501,22 @@ mod tests {
                 married_filing_jointly: flat_tax_table(1.0e9, 0.0),
                 single: flat_tax_table(1.0e9, 0.0),
             },
+            start_date: start_date(),
         }
+    }
+
+    #[test]
+    fn test_simulation_starts_on_start_date() {
+        let input = test_input(vec![test_retiree(61, 0.0)], 0.0);
+        let results = run_simulation(&input).unwrap();
+        let dates: Vec<NaiveDate> = results.monthly_snapshot.iter().map(|s| s.date).collect();
+        assert_eq!(dates[0], start_date());
+        assert_eq!(dates[1], NaiveDate::from_ymd_opt(2026, 2, 15).unwrap());
+        // runs until the retiree's 65th birthday (life expectancy 64)
+        assert_eq!(
+            *dates.last().unwrap(),
+            NaiveDate::from_ymd_opt(2030, 12, 15).unwrap()
+        );
     }
 
     fn flat_tax_table(standard_deduction: f32, rate: f32) -> crate::TaxTable {
