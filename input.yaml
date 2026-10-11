@@ -84,9 +84,24 @@ expenses:
 # surviving spouse. Each level is the taxable income (after the standard
 # deduction) where the bracket starts, and the rate applied to income in that
 # bracket. The first level must start at 0.0.
+#
+# additional_deduction_65_or_older is added to the standard deduction for
+# each retiree who is 65 or older.
+#
+# Social security is taxed based on provisional income: all other income plus
+# half of the social security benefits. Above social_security_base, up to 50%
+# of the benefits are taxable, and above social_security_adjusted_base, up to
+# 85%. These thresholds are set by law and are not adjusted for inflation, so
+# expected_inflation is used to shrink them each year in today's dollars (the
+# historical simulation uses the actual inflation for each year instead).
 tax_rates:
+    expected_inflation: 2.5     # annual inflation rate (percentage)
+
     married_filing_jointly:
         standard_deduction: 32200.0
+        additional_deduction_65_or_older: 1650.0
+        social_security_base: 32000.0
+        social_security_adjusted_base: 44000.0
         levels:
             - income: 0.0
               rate: 10.0
@@ -111,6 +126,9 @@ tax_rates:
 
     single:
         standard_deduction: 16100.0
+        additional_deduction_65_or_older: 2050.0
+        social_security_base: 25000.0
+        social_security_adjusted_base: 34000.0
         levels:
             - income: 0.0
               rate: 10.0

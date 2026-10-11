@@ -168,7 +168,21 @@ Each block has a `standard_deduction` and a list of `levels`. Each entry in
 `levels` is one tax bracket: `income` is the taxable income (after the standard
 deduction) where the bracket starts, and `rate` is the percentage applied to
 income within that bracket. The first level must start at `0.0`, and the last
-level applies to all income above it.
+level applies to all income above it. Rates must be below 50%.
+
+| Value | Description |
+| --- | --- |
+| expected_inflation | Expected annual inflation (percentage), used to shrink the social security thresholds below. The historical simulation uses the actual inflation for each year instead. |
+| standard_deduction | The standard deduction for the filing status. |
+| additional_deduction_65_or_older | Added to the standard deduction for each retiree who is 65 or older. |
+| social_security_base | Provisional income above which up to 50% of social security is taxable ($32,000 married, $25,000 single). |
+| social_security_adjusted_base | Provisional income above which up to 85% of social security is taxable ($44,000 married, $34,000 single). |
+
+Social security is taxed based on provisional income: all other taxable income
+(including withdrawals) plus half of the social security benefits. Unlike the
+tax brackets, the social security thresholds are set by law and are not
+adjusted for inflation, so they get smaller every year in today's dollars. Over
+time, more retirees pay tax on 85% of their benefits.
 
 ## Output
 
@@ -193,7 +207,7 @@ The output is a table with the following columns:
 | Expenses | The retirement expenses in today's dollars |
 | Income | The total income from all sources during retirement |
 | Tax | The estimated tax paid on the income and withdrawals from the investment accounts during retirement |
-| Rate | The estimated marginal tax rate during retirement |
+| Rate | The estimated marginal tax bracket during retirement. Withdrawals can be taxed at a higher effective rate when they make more social security taxable. |
 | Draw | The percentage of assets withdrawn from the investment accounts. A popular rule of thumb aims to keep this at less than 4%. |
 | Yield | The annual investment yield for the portfolio |
 
@@ -292,15 +306,16 @@ on the values reported by the Social Security web site. These values include
 estimated benefits at ages 62, 67, and 70 (for later retirees). Ages in between
 are simply interpolated (averaged) between the reported values.
 
-**Income tax.** This can get very complicated. Social Security is taxed either
-at 50% or 85%, depending on total income. This application simply assumes social
-security is taxed at 85%. It also assumes all other income (including what is
+**Income tax.** All income other than social security (including what is
 withdrawn from the retirement accounts) is taxed at the normal income tax rate.
-Besides the standard deduction, we don't make any other adjustments to income or
-allow for itemization.  State taxes are ignored. We do estimate the taxes needed
-to pay for the withdrawals from the retirement accounts and add that to the
-withdrawal. Payroll taxes on wages are ignored. The additional standard
-deduction for people 65 and older is not included. A survivor switches to single
+Social security is taxed according to the IRS worksheet using provisional
+income. Besides the standard deduction and the additional deduction for people
+65 and older, we don't make any other adjustments to income or allow for
+itemization. The temporary $6,000 senior deduction for 2025 through 2028 is not
+included. State taxes are ignored. We do estimate the taxes needed to pay for
+the withdrawals from the retirement accounts and add that to the withdrawal,
+including the extra social security that becomes taxable because of the
+withdrawal. Payroll taxes on wages are ignored. A survivor switches to single
 rates immediately, although in practice they can file jointly for the year of
 death.
 

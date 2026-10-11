@@ -152,6 +152,7 @@ impl MonteCarloScan {
                     us_returns,
                     international_returns,
                     bonds_returns,
+                    input.tax_rates.expected_inflation,
                 )?;
                 if is_finished {
                     break 'outer;

@@ -58,15 +58,25 @@ pub struct TaxLevel {
     rate: f32,
 }
 
-// tax brackets and standard deduction for one filing status
+// tax brackets, deductions, and social security thresholds for one filing
+// status
 #[derive(Debug)]
 pub struct TaxTable {
     standard_deduction: f32,
+    // added to the standard deduction for each retiree 65 or older
+    additional_deduction_65_or_older: f32,
+    // provisional income (other income plus half of social security) above
+    // which up to 50%, then up to 85%, of social security is taxable. These
+    // are fixed by law and not adjusted for inflation.
+    social_security_base: f32,
+    social_security_adjusted_base: f32,
     tax_levels: Vec<TaxLevel>,
 }
 
 #[derive(Debug)]
 pub struct TaxRates {
+    // used to shrink the social security thresholds in today's dollars
+    expected_inflation: f32,
     married_filing_jointly: TaxTable,
     single: TaxTable,
 }
@@ -270,8 +280,21 @@ fn parse_tax_table(input_yaml: &yaml_rust::Yaml, name: &str) -> Result<TaxTable,
         return Err(format!("tax_rates {name} block missing"));
     }
 
-    let standard_deduction =
-        parse_f32(block, "standard_deduction").map_err(|e| format!("{e} in tax_rates {name}"))?;
+    let field =
+        |field_name| parse_f32(block, field_name).map_err(|e| format!("{e} in tax_rates {name}"));
+    let standard_deduction = field("standard_deduction")?;
+    let additional_deduction_65_or_older = field("additional_deduction_65_or_older")?;
+    let social_security_base = field("social_security_base")?;
+    let social_security_adjusted_base = field("social_security_adjusted_base")?;
+    if standard_deduction < 0.0 || additional_deduction_65_or_older < 0.0 {
+        return Err(format!("deductions in tax_rates {name} can't be negative"));
+    }
+    if social_security_base < 0.0 || social_security_adjusted_base < social_security_base {
+        return Err(format!(
+            "social_security_adjusted_base in tax_rates {name} must be at least \
+             social_security_base, and both must be 0.0 or more"
+        ));
+    }
 
     let block = &block["levels"];
     if block.is_badvalue() {
@@ -305,15 +328,21 @@ fn parse_tax_table(input_yaml: &yaml_rust::Yaml, name: &str) -> Result<TaxTable,
             ));
         }
     }
+    // each extra dollar of income can make up to 85 cents more of social
+    // security taxable, so the tax on a withdrawal can be 1.85 times the
+    // rate. Rates must stay low enough that this is less than 100%.
     if tax_levels
         .iter()
-        .any(|level| level.rate < 0.0 || level.rate >= 100.0)
+        .any(|level| level.rate < 0.0 || level.rate >= 50.0)
     {
-        return Err(format!("tax rates in {name} must be between 0.0 and 100.0"));
+        return Err(format!("tax rates in {name} must be between 0.0 and 50.0"));
     }
 
     let tax_table = TaxTable {
         standard_deduction,
+        additional_deduction_65_or_older,
+        social_security_base,
+        social_security_adjusted_base,
         tax_levels,
     };
 
@@ -333,7 +362,14 @@ fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
         );
     }
 
+    let expected_inflation =
+        parse_f32(block, "expected_inflation").map_err(|e| format!("{e} in tax_rates"))?;
+    if expected_inflation <= -100.0 {
+        return Err("expected_inflation in tax_rates must be more than -100.0".to_string());
+    }
+
     let tax_rates = TaxRates {
+        expected_inflation,
         married_filing_jointly: parse_tax_table(block, "married_filing_jointly")?,
         single: parse_tax_table(block, "single")?,
     };
@@ -741,7 +777,11 @@ mod tests {
     }
 
     fn parse_levels(levels_yaml: &str) -> Result<TaxTable, String> {
-        let yaml = format!("single:\n  standard_deduction: 32200.0\n  levels:\n{levels_yaml}");
+        let yaml = format!(
+            "single:\n  standard_deduction: 32200.0\n  additional_deduction_65_or_older: 1650.0\n  \
+             social_security_base: 32000.0\n  social_security_adjusted_base: 44000.0\n  \
+             levels:\n{levels_yaml}"
+        );
         let docs = YamlLoader::load_from_str(&yaml).unwrap();
         parse_tax_table(&docs[0], "single")
     }
@@ -836,6 +876,42 @@ mod tests {
     fn test_parse_accepts_integer_amounts() {
         let input = parse_modified_sample("balance: 1200000.0", "balance: 1200000").unwrap();
         assert_eq!(input.portfolio.balance, 1200000.0);
+    }
+
+    #[test]
+    fn test_parse_social_security_tax_settings() {
+        let input = parse_input_file("input.yaml", start_date()).unwrap();
+        let rates = &input.tax_rates;
+        assert_eq!(rates.expected_inflation, 2.5);
+        assert_eq!(rates.married_filing_jointly.social_security_base, 32000.0);
+        assert_eq!(
+            rates.married_filing_jointly.social_security_adjusted_base,
+            44000.0
+        );
+        assert_eq!(rates.single.social_security_base, 25000.0);
+        assert_eq!(rates.single.additional_deduction_65_or_older, 2050.0);
+    }
+
+    #[test]
+    fn test_parse_requires_social_security_tax_settings() {
+        let err = parse_modified_sample("expected_inflation: 2.5", "").unwrap_err();
+        assert!(err.contains("expected_inflation"), "{err}");
+        let err =
+            parse_modified_sample("additional_deduction_65_or_older: 2050.0", "").unwrap_err();
+        assert!(
+            err.contains("additional_deduction_65_or_older in tax_rates single"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn test_parse_rejects_adjusted_base_below_base() {
+        let err = parse_modified_sample(
+            "social_security_adjusted_base: 44000.0",
+            "social_security_adjusted_base: 30000.0",
+        )
+        .unwrap_err();
+        assert!(err.contains("social_security_adjusted_base"), "{err}");
     }
 
     #[test]
