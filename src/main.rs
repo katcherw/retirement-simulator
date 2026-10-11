@@ -58,10 +58,24 @@ pub struct TaxLevel {
     rate: f32,
 }
     
+// tax brackets and standard deduction for one filing status
 #[derive(Debug)]
-pub struct TaxRates {
+pub struct TaxTable {
     standard_deduction: f32,
     tax_levels: Vec<TaxLevel>,
+}
+
+#[derive(Debug)]
+pub struct TaxRates {
+    married_filing_jointly: TaxTable,
+    single: TaxTable,
+}
+
+impl TaxRates {
+    // married filing jointly while two retirees are alive, otherwise single
+    pub fn table_for(&self, num_alive: usize) -> &TaxTable {
+        if num_alive >= 2 {&self.married_filing_jointly} else {&self.single}
+    }
 }
 
 #[derive(Debug)]
@@ -244,47 +258,66 @@ fn parse_tax_rate(input_yaml: &yaml_rust::Yaml) -> Result<TaxLevel, String> {
     Ok(tax_rate)
 }
     
-fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
+fn parse_tax_table(input_yaml: &yaml_rust::Yaml, name: &str) -> Result<TaxTable, String> {
     let mut tax_levels = Vec::new();
-    let block = &input_yaml["tax_rates"];
+    let block = &input_yaml[name];
     if block.is_badvalue() {
-        return Err("tax_rates block missing".to_string());
+        return Err(format!("tax_rates {name} block missing"));
     }
 
-    let standard_deduction = parse_f32(block, "standard_deduction")?;
+    let standard_deduction = parse_f32(block, "standard_deduction")
+        .map_err(|e| format!("{e} in tax_rates {name}"))?;
 
     let block = &block["levels"];
     if block.is_badvalue() {
-        return Err("levels block missing".to_string());
+        return Err(format!("levels block missing in tax_rates {name}"));
     }
 
-    let vec = block.as_vec().ok_or("no tax rates found")?;
+    let vec = block.as_vec().ok_or(format!("no tax rates found in {name}"))?;
     for element in vec {
-        tax_levels.push(parse_tax_rate(element)?);
+        tax_levels.push(parse_tax_rate(element).map_err(|e| format!("{e} in tax_rates {name}"))?);
     }
 
     // each level is the lower bound of a bracket, so sort by income and make
     // sure the brackets cover all income starting from 0
     tax_levels.sort_by(|a, b| a.income.total_cmp(&b.income));
     match tax_levels.first() {
-        None => return Err("no tax rates found".to_string()),
+        None => return Err(format!("no tax rates found in {name}")),
         Some(first) if first.income != 0.0 => {
-            return Err("first tax level must have income 0.0 (the lowest bracket)".to_string());
+            return Err(format!("first tax level in {name} must have income 0.0 (the lowest bracket)"));
         }
         _ => {}
     }
     for pair in tax_levels.windows(2) {
         if pair[0].income == pair[1].income {
-            return Err(format!("duplicate tax level for income {}", pair[0].income));
+            return Err(format!("duplicate tax level in {name} for income {}", pair[0].income));
         }
     }
     if tax_levels.iter().any(|level| level.rate < 0.0 || level.rate >= 100.0) {
-        return Err("tax rates must be between 0.0 and 100.0".to_string());
+        return Err(format!("tax rates in {name} must be between 0.0 and 100.0"));
+    }
+
+    let tax_table = TaxTable {
+        standard_deduction,
+        tax_levels,
+    };
+
+    Ok(tax_table)
+}
+
+fn parse_tax_rates(input_yaml: &yaml_rust::Yaml) -> Result<TaxRates, String> {
+    let block = &input_yaml["tax_rates"];
+    if block.is_badvalue() {
+        return Err("tax_rates block missing".to_string());
+    }
+    if !block["levels"].is_badvalue() {
+        return Err("tax_rates must now contain separate married_filing_jointly and single \
+                    blocks (see input.yaml)".to_string());
     }
 
     let tax_rates = TaxRates {
-        standard_deduction,
-        tax_levels,
+        married_filing_jointly: parse_tax_table(block, "married_filing_jointly")?,
+        single: parse_tax_table(block, "single")?,
     };
 
     Ok(tax_rates)
@@ -532,10 +565,10 @@ fn main() {
 mod tests {
     use super::*;
 
-    fn parse_levels(levels_yaml: &str) -> Result<TaxRates, String> {
-        let yaml = format!("tax_rates:\n  standard_deduction: 32200.0\n  levels:\n{levels_yaml}");
+    fn parse_levels(levels_yaml: &str) -> Result<TaxTable, String> {
+        let yaml = format!("single:\n  standard_deduction: 32200.0\n  levels:\n{levels_yaml}");
         let docs = YamlLoader::load_from_str(&yaml).unwrap();
-        parse_tax_rates(&docs[0])
+        parse_tax_table(&docs[0], "single")
     }
 
     #[test]
@@ -572,9 +605,38 @@ mod tests {
     #[test]
     fn test_parse_sample_input() {
         let input = parse_input_file("input.yaml").unwrap();
-        assert_eq!(input.tax_rates.tax_levels.len(), 7);
-        assert_eq!(input.tax_rates.tax_levels[0].income, 0.0);
+        let married = &input.tax_rates.married_filing_jointly;
+        let single = &input.tax_rates.single;
+        assert_eq!(married.tax_levels.len(), 7);
+        assert_eq!(single.tax_levels.len(), 7);
+        assert_eq!(married.tax_levels[0].income, 0.0);
+        assert_eq!(single.tax_levels[0].income, 0.0);
+        assert!(single.standard_deduction < married.standard_deduction);
         assert_eq!(input.expenses.survivor_percent, 100.0);
+    }
+
+    #[test]
+    fn test_tax_table_for_filing_status() {
+        let input = parse_input_file("input.yaml").unwrap();
+        let rates = &input.tax_rates;
+        assert!(std::ptr::eq(rates.table_for(2), &rates.married_filing_jointly));
+        assert!(std::ptr::eq(rates.table_for(1), &rates.single));
+    }
+
+    #[test]
+    fn test_parse_rejects_old_tax_format() {
+        let yaml = "tax_rates:\n  standard_deduction: 32200.0\n  levels:\n    - {income: 0.0, rate: 10.0}\n";
+        let docs = YamlLoader::load_from_str(yaml).unwrap();
+        let err = parse_tax_rates(&docs[0]).unwrap_err();
+        assert!(err.contains("married_filing_jointly and single"), "{err}");
+    }
+
+    #[test]
+    fn test_parse_requires_both_tax_tables() {
+        let sample = fs::read_to_string("input.yaml").unwrap();
+        let without_single = sample.split("    single:").next().unwrap();
+        let err = parse_input_str(without_single).unwrap_err();
+        assert!(err.contains("single block missing"), "{err}");
     }
 
     // sample input with one piece of text replaced

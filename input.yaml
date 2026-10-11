@@ -74,31 +74,56 @@ expenses:
     monthly: 9000.0     # estimated monthly expenses during retirment in today's dollars
     survivor_percent: 100.0   # percentage of expenses remaining after a spouse dies (optional)
 
-# tax rates from IRS. Figures below are for married filing jointly.
-# Each level is the taxable income (after the standard deduction) where the
-# bracket starts, and the rate applied to income in that bracket. The first
-# level must start at 0.0.
+# 2026 tax rates from the IRS. Married filing jointly rates are used while
+# both retirees are alive; single rates are used for a single retiree or a
+# surviving spouse. Each level is the taxable income (after the standard
+# deduction) where the bracket starts, and the rate applied to income in that
+# bracket. The first level must start at 0.0.
 tax_rates:
-    standard_deduction: 32200.0
-    levels:
-        - income: 0.0
-          rate: 10.0
+    married_filing_jointly:
+        standard_deduction: 32200.0
+        levels:
+            - income: 0.0
+              rate: 10.0
 
-        - income: 24800.0
-          rate: 12.0
+            - income: 24800.0
+              rate: 12.0
 
-        - income: 100800.0
-          rate: 22.0
+            - income: 100800.0
+              rate: 22.0
 
-        - income: 211400.0
-          rate: 24.0
+            - income: 211400.0
+              rate: 24.0
 
-        - income: 403550.0
-          rate: 32.0
+            - income: 403550.0
+              rate: 32.0
 
-        - income: 512450.0
-          rate: 35.0
+            - income: 512450.0
+              rate: 35.0
 
-        - income: 768700.0
-          rate: 37.0
+            - income: 768700.0
+              rate: 37.0
 
+    single:
+        standard_deduction: 16100.0
+        levels:
+            - income: 0.0
+              rate: 10.0
+
+            - income: 12400.0
+              rate: 12.0
+
+            - income: 50400.0
+              rate: 22.0
+
+            - income: 105700.0
+              rate: 24.0
+
+            - income: 201775.0
+              rate: 32.0
+
+            - income: 256225.0
+              rate: 35.0
+
+            - income: 640600.0
+              rate: 37.0
