@@ -623,24 +623,37 @@ fn print_scan_summary(results: &scan::ScanResults) {
     println!("    {:<16} {}", "Latest", describe(last));
 }
 
-fn print_historical_result_details(results: &scan::ScanResults) {
+fn print_historical_result_details(results: &scan::ScanResults, historical_scan: &HistoricalScan) {
+    let scenarios = &results.scenario_results;
+    let (first, last) = historical_scan.first_and_last_years();
+    let num_wrapped = scenarios
+        .iter()
+        .filter(|s| s.ending_year < s.starting_year)
+        .count();
+    if num_wrapped > 0 {
+        println!();
+        println!(
+            "{num_wrapped} of {} scenarios ran past {last} and continued with the returns from\n\
+             {first} on, so their later years are not a real historical sequence.",
+            scenarios.len()
+        );
+    }
+
     println!();
     println!("Scenarios (sorted by worst to best):");
     for index in results.sorted_indices.iter() {
         println!(
-            "    years {} to {}, ending balance ${}",
-            results.scenario_results[*index].starting_year,
-            results.scenario_results[*index].ending_year,
-            num_with_commas(results.scenario_results[*index].ending_balance() as u64)
+            "    years {}, ending balance ${}",
+            historical_scan.describe_years(&scenarios[*index]),
+            num_with_commas(scenarios[*index].ending_balance() as u64)
         );
     }
 
     let worst_index = results.sorted_indices[0];
     println!();
     println!(
-        "Worst result was years {} to {}",
-        results.scenario_results[worst_index].starting_year,
-        results.scenario_results[worst_index].ending_year
+        "Worst result was years {}",
+        historical_scan.describe_years(&scenarios[worst_index])
     );
 }
 
@@ -742,7 +755,7 @@ fn main() {
         println!("Error running historical simulation: {}", err);
         process::exit(1);
     });
-    print_historical_result_details(&historical_results);
+    print_historical_result_details(&historical_results, &historical_scan);
 
     println!();
     println!("-= Monte Carlo Simulation =-");
