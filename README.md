@@ -110,6 +110,12 @@ Fidelity Investments. You may change these as you like. All expected returns are
 real returns as opposed to nominal returns. In other words, the returns are the
 actual returns minus inflation.
 
+Expected returns must be geometric (compound annual) averages, which is how
+Fidelity and most other firms publish their forecasts. This is the rate money
+actually grows at over many years. It is lower than the simple average of the
+yearly returns, because volatility drags down compound growth: a +50% year
+followed by a -50% year averages 0%, but leaves you with only 75% of your money.
+
 The last group of values is the correlation of annual returns between the asset
 classes, used by the Monte Carlo simulation.
 
@@ -124,9 +130,8 @@ move together). US and international stocks have historically been strongly
 correlated (about 0.7 to 0.85 depending on the period). The correlation between
 stocks and bonds has varied widely, from negative in 2000-2020 to strongly
 positive in years like 2022, so the sample value of 0.3 is a cautious middle
-ground.
-Some investment firms, such as J.P. Morgan in its Long-Term Capital Market
-Assumptions, publish forecasted correlations along with expected returns.
+ground. Some investment firms, such as J.P. Morgan in its Long-Term Capital
+Market Assumptions, publish forecasted correlations along with expected returns.
 
 ### Expenses
 
@@ -200,11 +205,15 @@ The simulation results are then sorted from worst to best results and printed.
 
 The Monte Carlo simulation takes the expected returns and standard deviations in
 the input, and simulates each year with a random value. That random value will
-be chosen from a normal distribution with the mean and standard deviation from
-the input file. The returns of the three asset classes are drawn together using
-the correlations from the input file, so that, for example, a bad year for US
-stocks is usually also a bad year for international stocks. 1000 such
-simulations will be performed.
+be chosen from a normal distribution with the standard deviation from the input
+file. Its mean is the expected return plus half the variance (the standard
+deviation squared), which converts the geometric expected return into the
+average yearly return needed for the money to compound at the expected rate. For
+example, US stocks with an expected return of 3.2% and a standard deviation of
+15% are drawn with a mean of 4.3%. The returns of the three asset classes are
+drawn together using the correlations from the input file, so that, for example,
+a bad year for US stocks is usually also a bad year for international stocks.
+1000 such simulations will be performed.
 
 The output is the percentage of successful simulations. The worst year's result
 will be printed in a format the same as the Uniform Simulation.

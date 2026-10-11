@@ -48,12 +48,14 @@ impl ReturnsSampler {
             [us_bonds, international_bonds, 1.0],
         ];
 
+        let geometric_means = [
+            portfolio.us_equity_expected_returns as f64,
+            portfolio.international_equity_expected_returns as f64,
+            portfolio.bonds_expected_returns as f64,
+        ];
+
         Ok(ReturnsSampler {
-            means: [
-                portfolio.us_equity_expected_returns as f64,
-                portfolio.international_equity_expected_returns as f64,
-                portfolio.bonds_expected_returns as f64,
-            ],
+            means: arithmetic_means(&geometric_means, &standard_deviations),
             standard_deviations,
             cholesky: cholesky(&correlations)?,
         })
@@ -75,6 +77,20 @@ impl ReturnsSampler {
         }
         returns
     }
+}
+
+// Expected returns are geometric (compound annual) averages, which is how
+// forecasts are usually published. Volatility drags the compound return
+// below the average of the yearly returns, so the yearly returns must be
+// drawn with a higher (arithmetic) mean for the money to compound at the
+// expected rate: arithmetic = geometric + variance / 2. All values are
+// percentages.
+fn arithmetic_means(geometric_means: &[f64; 3], standard_deviations: &[f64; 3]) -> [f64; 3] {
+    let mut means = [0.0; 3];
+    for i in 0..3 {
+        means[i] = geometric_means[i] + standard_deviations[i].powi(2) / 200.0;
+    }
+    means
 }
 
 // Cholesky decomposition of a correlation matrix. Fails if the correlations
@@ -273,21 +289,64 @@ mod tests {
         covariance / (standard_deviation(a) * standard_deviation(b))
     }
 
-    #[test]
-    fn test_samples_match_inputs() {
+    // draws returns for [us, international, bonds] from the test portfolio
+    fn draw_samples(count: usize) -> [Vec<f64>; 3] {
         let sampler = ReturnsSampler::new(&portfolio(0.8, 0.3, 0.3)).unwrap();
         let mut rng = StdRng::seed_from_u64(1);
-        let (mut us, mut international, mut bonds) = (Vec::new(), Vec::new(), Vec::new());
-        for _ in 0..200_000 {
-            let [u, i, b] = sampler.sample(&mut rng);
-            us.push(u as f64);
-            international.push(i as f64);
-            bonds.push(b as f64);
+        let mut samples: [Vec<f64>; 3] = Default::default();
+        for _ in 0..count {
+            for (column, value) in samples.iter_mut().zip(sampler.sample(&mut rng)) {
+                column.push(value as f64);
+            }
         }
+        samples
+    }
 
-        assert!((mean(&us) - 3.2).abs() < 0.1);
-        assert!((mean(&international) - 4.1).abs() < 0.1);
-        assert!((mean(&bonds) - 2.5).abs() < 0.05);
+    // annual rate the money compounds at when growing by these returns
+    fn compound_growth(returns: &[f64]) -> f64 {
+        let mean_log =
+            returns.iter().map(|r| (r / 100.0).ln_1p()).sum::<f64>() / returns.len() as f64;
+        mean_log.exp_m1() * 100.0
+    }
+
+    #[test]
+    fn test_arithmetic_means() {
+        let means = arithmetic_means(&[3.2, 4.1, 2.5], &[15.0, 16.0, 0.0]);
+        assert!((means[0] - 4.325).abs() < 1e-9);
+        assert!((means[1] - 5.38).abs() < 1e-9);
+        assert_eq!(means[2], 2.5);
+    }
+
+    #[test]
+    fn test_samples_compound_at_expected_returns() {
+        // the expected returns in the input are geometric, so the simulated
+        // money should compound at those rates
+        let [us, international, bonds] = draw_samples(500_000);
+        assert!(
+            (compound_growth(&us) - 3.2).abs() < 0.1,
+            "{}",
+            compound_growth(&us)
+        );
+        assert!(
+            (compound_growth(&international) - 4.1).abs() < 0.1,
+            "{}",
+            compound_growth(&international)
+        );
+        assert!(
+            (compound_growth(&bonds) - 2.5).abs() < 0.05,
+            "{}",
+            compound_growth(&bonds)
+        );
+    }
+
+    #[test]
+    fn test_samples_match_inputs() {
+        let [us, international, bonds] = draw_samples(200_000);
+
+        // yearly returns average higher than the geometric expected returns
+        assert!((mean(&us) - 4.325).abs() < 0.1);
+        assert!((mean(&international) - 5.38).abs() < 0.1);
+        assert!((mean(&bonds) - 2.68).abs() < 0.05);
         assert!((standard_deviation(&us) - 15.0).abs() < 0.15);
         assert!((standard_deviation(&international) - 16.0).abs() < 0.15);
         assert!((standard_deviation(&bonds) - 6.0).abs() < 0.06);
