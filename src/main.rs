@@ -516,23 +516,72 @@ fn run_scan<S: scan::Scannable>(
     scanner: &mut S,
 ) -> Result<scan::ScanResults, String> {
     let results = scanner.run_scan(input)?;
+    print_scan_summary(&results);
+    Ok(results)
+}
 
+fn percent(count: usize, total: u32) -> f32 {
+    count as f32 / total as f32 * 100.0
+}
+
+fn print_scan_summary(results: &scan::ScanResults) {
     println!(
         "Successful runs: {} of {} ({:.1}%)",
         results.num_successful,
         results.num_simulations,
-        results.num_successful as f32 / (results.num_simulations as f32) * 100.0
-    );
-    println!(
-        "Lowest ending balance: ${}",
-        num_with_commas(results.min_balance as u64)
-    );
-    println!(
-        "Highest ending balance: ${}",
-        num_with_commas(results.max_balance as u64)
+        percent(results.num_successful as usize, results.num_simulations)
     );
 
-    Ok(results)
+    println!();
+    println!("Ending balance in today's dollars:");
+    let percentiles = [
+        ("Worst", 0.0),
+        ("10th percentile", 10.0),
+        ("25th percentile", 25.0),
+        ("Median", 50.0),
+        ("75th percentile", 75.0),
+        ("90th percentile", 90.0),
+        ("Best", 100.0),
+    ];
+    for (label, percentile) in percentiles {
+        let balance = results.ending_balance_percentile(percentile) as u64;
+        println!(
+            "    {:<16} {:>14}",
+            label,
+            format!("${}", num_with_commas(balance))
+        );
+    }
+
+    println!();
+    let failure_dates = results.failure_dates();
+    if failure_dates.is_empty() {
+        println!("The money never ran out.");
+        return;
+    }
+    // year, with the ages of the retirees still alive then
+    let retirees = &results.scenario_results[0].simulation_results.retirees;
+    let describe = |date: &NaiveDate| {
+        let ages: Vec<String> = retirees
+            .iter()
+            .filter(|retiree| *date < retiree.death_date)
+            .map(|retiree| {
+                let age = utils::get_age(&retiree.date_of_birth, date);
+                format!("{} age {}", retiree.name, age)
+            })
+            .collect();
+        format!("{} ({})", date.format("%Y"), ages.join(", "))
+    };
+    println!(
+        "The money ran out in {} of {} runs ({:.1}%):",
+        failure_dates.len(),
+        results.num_simulations,
+        percent(failure_dates.len(), results.num_simulations)
+    );
+    let middle = &failure_dates[failure_dates.len() / 2];
+    let last = &failure_dates[failure_dates.len() - 1];
+    println!("    {:<16} {}", "Earliest", describe(&failure_dates[0]));
+    println!("    {:<16} {}", "Median", describe(middle));
+    println!("    {:<16} {}", "Latest", describe(last));
 }
 
 fn print_historical_result_details(results: &scan::ScanResults) {
@@ -543,14 +592,7 @@ fn print_historical_result_details(results: &scan::ScanResults) {
             "    years {} to {}, ending balance ${}",
             results.scenario_results[*index].starting_year,
             results.scenario_results[*index].ending_year,
-            num_with_commas(
-                results.scenario_results[*index]
-                    .simulation_results
-                    .monthly_snapshot
-                    .last()
-                    .unwrap()
-                    .balance as u64
-            )
+            num_with_commas(results.scenario_results[*index].ending_balance() as u64)
         );
     }
 
@@ -622,9 +664,10 @@ fn main() {
     });
 
     println!();
-    println!("Worst year:");
+    println!("Worst scenario:");
     print_simulation_results(
-        &monte_carlo_results.scenario_results[monte_carlo_results.sorted_indices[0]]
+        &monte_carlo_results
+            .scenario_at_percentile(0.0)
             .simulation_results,
     );
 }
