@@ -197,7 +197,8 @@ simulate, it starts again in 1928. For example, if the data is available for
 retirement will be 2022, next 2023, next 1928, next 1929, etc.
 
 The output will print the percentage of years that were successful, i.e. the
-number of years where the balance didn't go to 0 at any point.
+number of years where the balance didn't go to 0 at any point, followed by the
+same summary as the Monte Carlo simulation (see below).
 
 The simulation results are then sorted from worst to best results and printed.
 
@@ -215,8 +216,21 @@ drawn together using the correlations from the input file, so that, for example,
 a bad year for US stocks is usually also a bad year for international stocks.
 1000 such simulations will be performed.
 
-The output is the percentage of successful simulations. The worst year's result
-will be printed in a format the same as the Uniform Simulation.
+The output starts with the percentage of successful simulations, followed by a
+summary of all the simulations:
+
+* **Ending balance.** The balance at the end of the plan (in today's dollars)
+  for the worst simulation, the 10th, 25th, 50th (median), 75th, and 90th
+  percentiles, and the best simulation. For example, the 10th percentile is the
+  ending balance that 10% of simulations fell below. Simulations where the money
+  ran out count as $0.
+* **When the money ran out.** For the simulations that failed, the earliest,
+  median, and latest year the money ran out, with the ages of the retirees still
+  alive that year. A failure late in life is a very different risk from one
+  early in retirement.
+
+Finally, the worst simulation is printed year by year in the same format as the
+Uniform Simulation.
 
 ## About the Simulation
 

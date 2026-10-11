@@ -26,7 +26,6 @@ pub struct MonthlySnapshot {
 // reporting easier
 #[derive(Debug)]
 pub struct RetireeInfo {
-    #[allow(dead_code)] // not used yet, but useful for reporting
     pub name: String,
     pub retirement_date: NaiveDate,
     // first day after the retiree's life expectancy is reached
