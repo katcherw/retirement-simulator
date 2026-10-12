@@ -100,7 +100,17 @@ The portfolio section represents your investment accounts.
 
 | Value | Description |
 | --- | --- |
-| Balance | Today's balance of all investments |
+| balance | Today's balance of all accounts except Roth: 401(k), 403(b), traditional IRA, and brokerage accounts. Withdrawals are taxed as ordinary income. Contributions and any income left over after expenses and taxes are added here. |
+| roth_balance | Today's balance of Roth IRA, Roth 401(k), and HSA accounts. Withdrawals aren't taxed. Optional; if it's left out, all savings are treated as `balance`. |
+
+Withdrawals come from `balance` first, and from `roth_balance` only after
+`balance` runs out. Every account holds the same asset allocation (below).
+
+An HSA is treated as a Roth account, which assumes it will be spent on medical
+expenses (tax free). Brokerage accounts are included in `balance`, so their
+withdrawals are taxed as ordinary income, even though in practice only the
+gains would be taxed, at lower capital gains rates. This overstates their taxes,
+so results are on the safe side.
 
 The next blocks are the `pre-retirement_allocation` block which is your asset
 allocation before retirement and `post-retirement_allocation` block which is
@@ -273,7 +283,8 @@ of inflation. Instead, the effect of inflation is accounted for by the lower
 returns of investments. It is assumed that social security, pensions, and other
 income are adjusted for inflation annually.
 
-**Rebalancing.** It is assumed that the portfolio is rebalanced continuously.
+**Rebalancing.** It is assumed that the portfolio is rebalanced continuously,
+and that every account holds the same asset allocation.
 
 **Which simulation do I use?** This is up to you. The uniform simulation is
 unrealistic but give some insight into your retirement plan. The historical
@@ -313,7 +324,8 @@ estimated benefits at ages 62, 67, and 70 (for later retirees). Ages in between
 are simply interpolated (averaged) between the reported values.
 
 **Income tax.** All income other than social security (including what is
-withdrawn from the retirement accounts) is taxed at the normal income tax rate.
+withdrawn from `balance`) is taxed at the normal income tax rate. Roth
+withdrawals aren't taxed. Required minimum distributions are not modelled.
 Social security is taxed according to the IRS worksheet using provisional
 income. Besides the standard deduction and the additional deduction for people
 65 and older, we don't make any other adjustments to income or allow for

@@ -45,7 +45,14 @@ retirees:
        social_security_amount_delayed: 4809.0   # amount if you elect SS at 70 
 
 portfolio:
-    balance: 1200000.0              # balance of portfolio as of today
+    # balances as of today. balance is everything except Roth accounts:
+    # 401(k), 403(b), traditional IRA, and brokerage accounts. Withdrawals
+    # are taxed as ordinary income (which overstates the tax on brokerage
+    # accounts). roth_balance is Roth IRA, Roth 401(k), and HSA accounts;
+    # withdrawals aren't taxed. roth_balance is optional (default 0.0).
+    # Withdrawals come from balance first, then from roth_balance.
+    balance: 900000.0
+    roth_balance: 300000.0
 
     # asset allocation before retirement (should add up to 100.0)
     pre-retirement_allocation:

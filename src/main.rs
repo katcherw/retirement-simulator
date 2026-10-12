@@ -150,7 +150,14 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
         return Err("portfolio block missing".to_string());
     }
 
-    let balance = parse_f64(block, "balance")?;
+    // balance is everything except Roth. roth_balance is optional: treating
+    // everything as pre-tax overstates taxes, so it's a safe default.
+    let pre_tax_balance = parse_f64(block, "balance")?;
+    let roth_balance = if block["roth_balance"].is_badvalue() {
+        0.0
+    } else {
+        parse_f64(block, "roth_balance")?
+    };
 
     let pre_retirement_block = &block["pre-retirement_allocation"];
     if pre_retirement_block.is_badvalue() {
@@ -177,7 +184,8 @@ fn parse_portfolio(input_yaml: &yaml_rust::Yaml) -> Result<Portfolio, String> {
     let international_bonds_correlation = parse_f64(block, "international_bonds_correlation")?;
 
     let portfolio = Portfolio {
-        balance,
+        pre_tax_balance,
+        roth_balance,
         pre_retirement_allocation,
         post_retirement_allocation,
         us_equity_expected_returns,
@@ -406,6 +414,9 @@ fn validate_input(input: &Input) -> Result<(), String> {
     }
 
     let portfolio = &input.portfolio;
+    if portfolio.pre_tax_balance < 0.0 || portfolio.roth_balance < 0.0 {
+        return Err("portfolio balances can't be negative".to_string());
+    }
     validate_allocation(
         &portfolio.pre_retirement_allocation,
         "pre-retirement_allocation",
@@ -887,8 +898,8 @@ mod tests {
 
     #[test]
     fn test_parse_accepts_integer_amounts() {
-        let input = parse_modified_sample("balance: 1200000.0", "balance: 1200000").unwrap();
-        assert_eq!(input.portfolio.balance, 1200000.0);
+        let input = parse_modified_sample("balance: 900000.0", "balance: 900000").unwrap();
+        assert_eq!(input.portfolio.pre_tax_balance, 900000.0);
     }
 
     #[test]
@@ -925,6 +936,23 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("social_security_adjusted_base"), "{err}");
+    }
+
+    #[test]
+    fn test_parse_roth_balance() {
+        let input = parse_input_file("input.yaml", start_date()).unwrap();
+        assert_eq!(input.portfolio.roth_balance, 300000.0);
+
+        // optional, defaults to no Roth
+        let input = parse_modified_sample("roth_balance: 300000.0", "").unwrap();
+        assert_eq!(input.portfolio.roth_balance, 0.0);
+
+        let err =
+            parse_modified_sample("roth_balance: 300000.0", "roth_balance: lots").unwrap_err();
+        assert!(err.contains("roth_balance"), "{err}");
+        let err =
+            parse_modified_sample("roth_balance: 300000.0", "roth_balance: -1.0").unwrap_err();
+        assert!(err.contains("negative"), "{err}");
     }
 
     #[test]

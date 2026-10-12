@@ -196,7 +196,8 @@ mod tests {
             bonds: 25.0,
         };
         Portfolio {
-            balance: 0.0,
+            pre_tax_balance: 0.0,
+            roth_balance: 0.0,
             pre_retirement_allocation: allocation,
             post_retirement_allocation: allocation,
             us_equity_expected_returns: 3.2,
