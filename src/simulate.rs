@@ -114,17 +114,27 @@ impl TaxRules<'_> {
     // taxed, causing more withdrawals, and more taxes and so on. Extra
     // income can also make more social security taxable, so there is no
     // simple formula. Instead, search for the extra withdrawal that exactly
-    // pays the taxes not covered by the surplus. Returns the monthly tax
-    // (including the tax on the extra withdrawal) and the marginal bracket.
+    // pays the taxes not covered by the surplus.
+    //
+    // withdrawals (for expenses) and the extra withdrawal come from the
+    // pre-tax balance first, and only that part is taxed. The rest comes
+    // from Roth, tax free. Returns the monthly tax (including the tax on the
+    // extra withdrawal) and the marginal bracket.
     fn taxes_with_withdrawals(
         &self,
         social_security: f64,
         other_income: f64,
+        withdrawals: f64,
         surplus: f64,
+        pre_tax_balance: f64,
     ) -> (f64, f64) {
-        let shortfall = |extra: f64| self.taxes(social_security, other_income + extra).0 - surplus;
+        let taxes = |extra: f64| {
+            let taxable_withdrawals = f64::min(withdrawals + extra, pre_tax_balance);
+            self.taxes(social_security, other_income + taxable_withdrawals)
+        };
+        let shortfall = |extra: f64| taxes(extra).0 - surplus;
         if shortfall(0.0) <= 0.0 {
-            return self.taxes(social_security, other_income);
+            return taxes(0.0);
         }
 
         // the effective marginal rate is below 100% (tax rates are below 50%,
@@ -144,7 +154,7 @@ impl TaxRules<'_> {
                 high = middle;
             }
         }
-        self.taxes(social_security, other_income + high)
+        taxes(high)
     }
 }
 
@@ -333,7 +343,8 @@ impl<'a> Simulation<'a> {
         let withdrawals = f64::max(expenses - income, 0.0);
 
         // tax on income and withdrawals, using the filing status for the
-        // number of retirees alive. Withdrawals are taxed as ordinary income.
+        // number of retirees alive. Withdrawals from the pre-tax balance are
+        // taxed as ordinary income; Roth withdrawals aren't taxed.
         let num_alive = alive.iter().filter(|&&a| a).count();
         let num_65_or_older = self
             .input_
@@ -354,8 +365,10 @@ impl<'a> Simulation<'a> {
         let surplus = f64::max(income - expenses, 0.0);
         let (taxes, tax_rate) = tax_rules.taxes_with_withdrawals(
             social_security,
-            taxable_income + withdrawals,
+            taxable_income,
+            withdrawals,
             surplus,
+            self.portfolio_.pre_tax_balance,
         );
 
         let net_cash_flow = income - expenses - taxes;
@@ -363,8 +376,8 @@ impl<'a> Simulation<'a> {
         if net_cash_flow >= 0.0 {
             self.portfolio_.deposit(net_cash_flow);
         } else {
-            if self.portfolio_.balance > 0.0 {
-                withdrawal_rate = -net_cash_flow * 12.0 / self.portfolio_.balance;
+            if self.portfolio_.balance() > 0.0 {
+                withdrawal_rate = -net_cash_flow * 12.0 / self.portfolio_.balance();
             }
             self.portfolio_.withdraw(-net_cash_flow);
         }
@@ -381,7 +394,7 @@ impl<'a> Simulation<'a> {
 
         let monthly_balance = MonthlySnapshot {
             date: self.current_date_,
-            balance: self.portfolio_.balance,
+            balance: self.portfolio_.balance(),
             expenses,
             income,
             taxes,
@@ -400,7 +413,7 @@ impl<'a> Simulation<'a> {
             .unwrap();
         self.social_security_threshold_scale_ /= (1.0 + inflation / 100.0).powf(1.0 / 12.0);
 
-        Ok(self.portfolio_.balance == 0.0)
+        Ok(self.portfolio_.balance() == 0.0)
     }
 }
 
@@ -592,7 +605,8 @@ mod tests {
         Input {
             retirees,
             portfolio: Portfolio {
-                balance: 1_000_000.0,
+                pre_tax_balance: 1_000_000.0,
+                roth_balance: 0.0,
                 pre_retirement_allocation: all_bonds,
                 post_retirement_allocation: all_bonds,
                 us_equity_expected_returns: 0.0,
@@ -723,6 +737,39 @@ mod tests {
         let first = &results.monthly_snapshot[0];
         assert!((first.taxes - 222.22).abs() < 0.01, "{}", first.taxes);
         assert!((first.balance - (1_000_000.0 - 1222.22)).abs() < 0.5);
+    }
+
+    #[test]
+    fn test_roth_withdrawals_are_not_taxed() {
+        // $1000 withdrawn for expenses comes from Roth, so only the pension is
+        // taxed, and the $100 tax is withdrawn from Roth tax free
+        let mut retiree = test_retiree(60, 0.0);
+        retiree.pension_monthly_income = 1000.0;
+        let mut input = test_input(vec![retiree], 2000.0);
+        input.portfolio.pre_tax_balance = 0.0;
+        input.portfolio.roth_balance = 1_000_000.0;
+        flat_tax(&mut input, 10.0);
+        let results = run_simulation(&input).unwrap();
+        let first = &results.monthly_snapshot[0];
+        assert!((first.taxes - 100.0).abs() < 0.01, "{}", first.taxes);
+        assert!((first.balance - (1_000_000.0 - 1100.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_only_pre_tax_part_of_withdrawal_is_taxed() {
+        // $1000 for expenses plus taxes, but only $500 is left in pre-tax:
+        // tax is 10% of the $1000 pension and the $500, and the rest comes
+        // from Roth
+        let mut retiree = test_retiree(60, 0.0);
+        retiree.pension_monthly_income = 1000.0;
+        let mut input = test_input(vec![retiree], 2000.0);
+        input.portfolio.pre_tax_balance = 500.0;
+        input.portfolio.roth_balance = 1_000_000.0;
+        flat_tax(&mut input, 10.0);
+        let results = run_simulation(&input).unwrap();
+        let first = &results.monthly_snapshot[0];
+        assert!((first.taxes - 150.0).abs() < 0.01, "{}", first.taxes);
+        assert!((first.balance - (1_000_500.0 - 1150.0)).abs() < 0.01);
     }
 
     // two retirees, both 60 and retired. The first has a pension and the
@@ -908,7 +955,8 @@ mod tests {
         let social_security = 3000.0;
         let other_income = 4000.0;
         let surplus = 100.0;
-        let (taxes, _) = rules.taxes_with_withdrawals(social_security, other_income, surplus);
+        let (taxes, _) =
+            rules.taxes_with_withdrawals(social_security, other_income, 0.0, surplus, f64::MAX);
         let extra = taxes - surplus;
         assert!(extra > 0.0);
         let (expected, _) = rules.taxes(social_security, other_income + extra);
