@@ -34,7 +34,7 @@ struct ScenarioSortingInfo {
 }
 
 // The results of all the scenarios in the scan
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ScanResults {
     pub scenario_results: Vec<Scenario>,
     pub num_simulations: u32,
@@ -47,13 +47,7 @@ pub struct ScanResults {
 
 impl ScanResults {
     pub fn new() -> Self {
-        ScanResults {
-            scenario_results: Vec::new(),
-            num_simulations: 0,
-            num_successful: 0,
-            sorted_indices: Vec::new(),
-            sorting_info: Vec::new(),
-        }
+        Self::default()
     }
 
     pub fn add_sorting_info(&mut self, index: usize, num_months: usize, ending_balance: f64) {
@@ -79,9 +73,8 @@ impl ScanResults {
     // the scenario at the given percentile (0 = worst, 100 = best). Must be
     // called after sort_results.
     pub fn scenario_at_percentile(&self, percentile: f64) -> &Scenario {
-        let last = self.sorted_indices.len() - 1;
-        let position = (percentile / 100.0 * last as f64).round() as usize;
-        &self.scenario_results[self.sorted_indices[position.min(last)]]
+        let position = percentile_index(self.sorted_indices.len(), percentile);
+        &self.scenario_results[self.sorted_indices[position]]
     }
 
     // ending balance at the given percentile (0 = worst, 100 = best).
@@ -100,6 +93,14 @@ impl ScanResults {
             .map(|scenario| scenario.last_snapshot().date)
             .collect()
     }
+}
+
+// index of the given percentile (0 = first, 100 = last) in a sorted list of
+// len values, rounded to the nearest value. len must be at least 1.
+pub fn percentile_index(len: usize, percentile: f64) -> usize {
+    let last = len - 1;
+    let position = (percentile / 100.0 * last as f64).round() as usize;
+    position.min(last)
 }
 
 pub trait Scannable {

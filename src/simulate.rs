@@ -225,7 +225,7 @@ impl<'a> Simulation<'a> {
             let retiree_result = RetireeInfo {
                 name: retiree.name.to_string(),
                 retirement_date: add_years(&retiree.date_of_birth, retiree.retirement_age),
-                death_date: add_years(&retiree.date_of_birth, retiree.life_expectency + 1),
+                death_date: add_years(&retiree.date_of_birth, retiree.life_expectancy + 1),
                 social_security_date: add_years(
                     &retiree.date_of_birth,
                     retiree.social_security_age,
@@ -582,7 +582,7 @@ mod tests {
                 .checked_sub_months(chrono::Months::new(60 * 12))
                 .unwrap(),
             retirement_age,
-            life_expectency: 64,
+            life_expectancy: 64,
             salary_annual,
             retirement_contribution_percent: 10.0,
             social_security_age: 67,
@@ -774,14 +774,14 @@ mod tests {
 
     // two retirees, both 60 and retired. The first has a pension and the
     // larger social security benefit, and dies first.
-    fn survivor_input(first_life_expectency: u32) -> Input {
+    fn survivor_input(first_life_expectancy: u32) -> Input {
         let mut first = test_retiree(60, 0.0);
-        first.life_expectency = first_life_expectency;
+        first.life_expectancy = first_life_expectancy;
         first.pension_monthly_income = 500.0;
         first.social_security_age = 62;
         first.social_security_amount_early = 2000.0;
         let mut second = test_retiree(60, 0.0);
-        second.life_expectency = 66;
+        second.life_expectancy = 66;
         second.social_security_age = 62;
         second.social_security_amount_early = 1000.0;
         let mut input = test_input(vec![first, second], 5000.0);
@@ -971,7 +971,7 @@ mod tests {
         // $1000/month pension, 10% flat tax, $6000 standard deduction plus
         // $2400 at 65: $50/month before, $30/month after
         let mut retiree = test_retiree(60, 0.0);
-        retiree.life_expectency = 66;
+        retiree.life_expectancy = 66;
         retiree.pension_monthly_income = 1000.0;
         let mut input = test_input(vec![retiree], 0.0);
         input.tax_rates.single = flat_tax_table(6000.0, 10.0);

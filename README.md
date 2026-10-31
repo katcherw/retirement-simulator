@@ -55,6 +55,23 @@ cargo run -- --seed 42 input.yaml
 
 Simulations start in the current month.
 
+To get the results as JSON instead of text, for use by other programs, add
+`--json`:
+
+```
+cargo run -- --json input.yaml
+```
+
+The JSON has the same results as the text output, plus `balance_bands` for the
+historical and Monte Carlo simulations: the balance at the start of each year
+at the worst, 10th, 25th, 50th, 75th, 90th percentiles and best, for charting
+the range of outcomes over time. Dates are in yyyy-mm-dd format.
+
+The simulation engine is also a Rust library (`src/lib.rs`), which the command
+line program uses: `Input::from_yaml` parses and validates a plan,
+`runner::run_all` runs all the simulations, and `report::build` analyzes their
+results.
+
 ## Configuration Values
 
 A sample configuration file is found in input.yaml.
@@ -62,6 +79,9 @@ A sample configuration file is found in input.yaml.
 All dollar amounts are in today's dollars. Dollar amounts and percentages may be
 entered with or without a decimal (e.g. 3140.00 or 3140). Ages must be whole
 numbers.
+
+Misspelled or unknown values are reported as errors, with the line number. The
+input may also be written in JSON, using the same names.
 
 ### Retirees
 
@@ -73,9 +93,9 @@ of the retiree in the first block.
 | Value | Description |
 | --- | --- |
 | name | Used for reporting purposes. |
-| date_of_birth | Entered in mm/dd/yyyy. |
+| date_of_birth | Entered in mm/dd/yyyy (yyyy-mm-dd is also accepted). |
 | retirement_age | Age when this retiree's wages and contributions end. Withdrawals from investments to pay for expenses begin when the first retiree retires; until the other retiree retires, their salary (minus contributions) counts as income. |
-| life_expectency | Many experts recommend to plan to around 90 so you don't run out of money if all goes well. |
+| life_expectancy | Many experts recommend to plan to around 90 so you don't run out of money if all goes well. |
 | wage_annual_salary | This is your pre-retirement salary. It is used to calculate your investment contributions, and as income while your spouse is retired and you are still working. |
 | retirement_contribution_percent | Percentage of salary that you're contributing to your retirement accounts. |
 | social_security_age | Age when you intend to take social security. You can try different ages to find best one to use. Note this doesn't need to be the retirement age. |
@@ -112,8 +132,8 @@ withdrawals are taxed as ordinary income, even though in practice only the
 gains would be taxed, at lower capital gains rates. This overstates their taxes,
 so results are on the safe side.
 
-The next blocks are the `pre-retirement_allocation` block which is your asset
-allocation before retirement and `post-retirement_allocation` block which is
+The next blocks are the `pre_retirement_allocation` block which is your asset
+allocation before retirement and `post_retirement_allocation` block which is
 your asset allocation after retirement. In each block, this is the percentage
 allocated to US equities, international equities, and bonds. Each block should
 add up to exactly 100.0.

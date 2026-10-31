@@ -7,24 +7,33 @@
 **************************************************************************/
 
 use crate::utils::*;
+use serde::{Deserialize, Serialize};
 
 // all values are percentages (0-100.0)
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Allocation {
     pub us_equities: f64,
     pub international: f64,
     pub bonds: f64,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Portfolio {
     // all accounts except Roth: 401(k), traditional IRA, brokerage, etc.
     // Withdrawals are taxed as ordinary income.
+    #[serde(rename = "balance")]
     pub pre_tax_balance: f64,
-    // Roth accounts (and HSA). Withdrawals aren't taxed.
+    // Roth accounts (and HSA). Withdrawals aren't taxed. Optional: treating
+    // everything as pre-tax overstates taxes, so it's a safe default.
+    #[serde(default)]
     pub roth_balance: f64,
 
+    // the hyphenated names are still accepted so existing files keep working
+    #[serde(alias = "pre-retirement_allocation")]
     pub pre_retirement_allocation: Allocation,
+    #[serde(alias = "post-retirement_allocation")]
     pub post_retirement_allocation: Allocation,
 
     pub us_equity_expected_returns: f64,

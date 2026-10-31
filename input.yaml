@@ -11,7 +11,7 @@ retirees:
      - name: John Doe
        date_of_birth: 9/30/1960                 # mm/dd/yyyy
        retirement_age: 67                       # age to stop collecting wages 
-       life_expectency: 90                      # Age that you expect to live to 
+       life_expectancy: 90                      # Age that you expect to live to 
        wage_annual_salary: 75000.0              # annual salary before retirement (before taxes) 
        retirement_contribution_percent: 12.0    # percentage of salary going to retirement savings
        social_security_age: 67                  # When you expect to start taking social security
@@ -29,7 +29,7 @@ retirees:
      - name: Jane Doe
        date_of_birth: 4/16/1964                 # mm/dd/yyyy
        retirement_age: 67                       # age to stop collecting wages 
-       life_expectency: 90                      # Age that you expect to live to 
+       life_expectancy: 90                      # Age that you expect to live to 
        wage_annual_salary: 87000.0              # annual salary before retirement (before taxes) 
        retirement_contribution_percent: 12.0    # percentage of salary going to retirement savings
        social_security_age: 67                  # When you expect to start taking social security
@@ -55,13 +55,13 @@ portfolio:
     roth_balance: 300000.0
 
     # asset allocation before retirement (should add up to 100.0)
-    pre-retirement_allocation:
+    pre_retirement_allocation:
         us_equities: 56.0          # percentage of portfolio in us stocks
         bonds: 20.0                # percentage of portfolio in bonds
         international: 24.0        # percentage of portfolio in international stocks
 
-    # asset allocation before retirement (should add up to 100.0)
-    post-retirement_allocation:
+    # asset allocation after retirement (should add up to 100.0)
+    post_retirement_allocation:
         us_equities: 42.0          # percentage of portfolio in us stocks
         bonds: 40.0                # percentage of portfolio in bonds
         international: 18.0        # percentage of portfolio in international stocks
