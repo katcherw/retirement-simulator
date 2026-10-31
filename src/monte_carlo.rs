@@ -4,7 +4,7 @@
 * Run a large number of random simulations
 **************************************************************************/
 
-use crate::portfolio::Portfolio;
+use crate::portfolio::Forecasts;
 use crate::{scan, simulate, Input};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -12,7 +12,7 @@ use rand_distr::StandardNormal;
 
 // Draws annual returns for US equities, international equities, and bonds
 // (in that order) from a normal distribution, with the returns correlated
-// with each other as configured in the portfolio.
+// with each other as configured in the forecasts.
 pub struct ReturnsSampler {
     means: [f64; 3],
     standard_deviations: [f64; 3],
@@ -21,11 +21,11 @@ pub struct ReturnsSampler {
 }
 
 impl ReturnsSampler {
-    pub fn new(portfolio: &Portfolio) -> Result<Self, String> {
+    pub fn new(forecasts: &Forecasts) -> Result<Self, String> {
         let standard_deviations = [
-            portfolio.us_equity_standard_deviation,
-            portfolio.international_equity_standard_deviation,
-            portfolio.bonds_standard_deviation,
+            forecasts.us_equity_standard_deviation,
+            forecasts.international_equity_standard_deviation,
+            forecasts.bonds_standard_deviation,
         ];
         if standard_deviations
             .iter()
@@ -34,9 +34,9 @@ impl ReturnsSampler {
             return Err("standard deviations can't be negative".to_string());
         }
 
-        let us_international = portfolio.us_international_correlation;
-        let us_bonds = portfolio.us_bonds_correlation;
-        let international_bonds = portfolio.international_bonds_correlation;
+        let us_international = forecasts.us_international_correlation;
+        let us_bonds = forecasts.us_bonds_correlation;
+        let international_bonds = forecasts.international_bonds_correlation;
         if [us_international, us_bonds, international_bonds]
             .iter()
             .any(|v| !(-1.0..=1.0).contains(v))
@@ -50,9 +50,9 @@ impl ReturnsSampler {
         ];
 
         let geometric_means = [
-            portfolio.us_equity_expected_returns,
-            portfolio.international_equity_expected_returns,
-            portfolio.bonds_expected_returns,
+            forecasts.us_equity_expected_returns,
+            forecasts.international_equity_expected_returns,
+            forecasts.bonds_expected_returns,
         ];
 
         Ok(ReturnsSampler {
@@ -171,7 +171,7 @@ impl MonteCarloScan {
 impl scan::Scannable for MonteCarloScan {
     fn run_scan(&mut self, input: &Input) -> Result<scan::ScanResults, String> {
         let mut results = scan::ScanResults::new();
-        let sampler = ReturnsSampler::new(&input.portfolio)?;
+        let sampler = ReturnsSampler::new(&input.portfolio.forecasts)?;
 
         for index in 0..1000 {
             let scenario = self.run_scenario(input, &sampler)?;
@@ -187,28 +187,13 @@ impl scan::Scannable for MonteCarloScan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::portfolio::Allocation;
 
-    fn portfolio(us_international: f64, us_bonds: f64, international_bonds: f64) -> Portfolio {
-        let allocation = Allocation {
-            us_equities: 50.0,
-            international: 25.0,
-            bonds: 25.0,
-        };
-        Portfolio {
-            pre_tax_balance: 0.0,
-            roth_balance: 0.0,
-            pre_retirement_allocation: allocation,
-            post_retirement_allocation: allocation,
-            us_equity_expected_returns: 3.2,
-            us_equity_standard_deviation: 15.0,
-            international_equity_expected_returns: 4.1,
-            international_equity_standard_deviation: 16.0,
-            bonds_expected_returns: 2.5,
-            bonds_standard_deviation: 6.0,
+    fn forecasts(us_international: f64, us_bonds: f64, international_bonds: f64) -> Forecasts {
+        Forecasts {
             us_international_correlation: us_international,
             us_bonds_correlation: us_bonds,
             international_bonds_correlation: international_bonds,
+            ..Forecasts::default()
         }
     }
 
@@ -260,7 +245,7 @@ mod tests {
 
     #[test]
     fn test_inconsistent_correlations_rejected() {
-        let err = ReturnsSampler::new(&portfolio(0.9, 0.9, -0.9))
+        let err = ReturnsSampler::new(&forecasts(0.9, 0.9, -0.9))
             .err()
             .unwrap();
         assert!(err.contains("inconsistent"), "{err}");
@@ -268,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_correlation_out_of_range_rejected() {
-        let err = ReturnsSampler::new(&portfolio(1.2, 0.3, 0.3))
+        let err = ReturnsSampler::new(&forecasts(1.2, 0.3, 0.3))
             .err()
             .unwrap();
         assert!(err.contains("between -1.0 and 1.0"), "{err}");
@@ -294,9 +279,9 @@ mod tests {
         covariance / (standard_deviation(a) * standard_deviation(b))
     }
 
-    // draws returns for [us, international, bonds] from the test portfolio
+    // draws returns for [us, international, bonds] from the test forecasts
     fn draw_samples(count: usize) -> [Vec<f64>; 3] {
-        let sampler = ReturnsSampler::new(&portfolio(0.8, 0.3, 0.3)).unwrap();
+        let sampler = ReturnsSampler::new(&forecasts(0.8, 0.3, 0.3)).unwrap();
         let mut rng = StdRng::seed_from_u64(1);
         let mut samples: [Vec<f64>; 3] = Default::default();
         for _ in 0..count {
@@ -362,9 +347,9 @@ mod tests {
 
     #[test]
     fn test_zero_standard_deviation_gives_expected_return() {
-        let mut p = portfolio(0.8, 0.3, 0.3);
-        p.bonds_standard_deviation = 0.0;
-        let sampler = ReturnsSampler::new(&p).unwrap();
+        let mut f = forecasts(0.8, 0.3, 0.3);
+        f.bonds_standard_deviation = 0.0;
+        let sampler = ReturnsSampler::new(&f).unwrap();
         let mut rng = StdRng::seed_from_u64(1);
         for _ in 0..100 {
             assert_eq!(sampler.sample(&mut rng)[2], 2.5);

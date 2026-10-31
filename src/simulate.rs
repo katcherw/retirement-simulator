@@ -422,9 +422,12 @@ pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
 
     loop {
         let is_finished = simulation.run_simulation_one_month(
-            input.portfolio.us_equity_expected_returns,
-            input.portfolio.international_equity_expected_returns,
-            input.portfolio.bonds_expected_returns,
+            input.portfolio.forecasts.us_equity_expected_returns,
+            input
+                .portfolio
+                .forecasts
+                .international_equity_expected_returns,
+            input.portfolio.forecasts.bonds_expected_returns,
             input.tax_rates.expected_inflation,
         )?;
 
@@ -609,15 +612,12 @@ mod tests {
                 roth_balance: 0.0,
                 pre_retirement_allocation: all_bonds,
                 post_retirement_allocation: all_bonds,
-                us_equity_expected_returns: 0.0,
-                us_equity_standard_deviation: 0.0,
-                international_equity_expected_returns: 0.0,
-                international_equity_standard_deviation: 0.0,
-                bonds_expected_returns: 0.0,
-                bonds_standard_deviation: 0.0,
-                us_international_correlation: 0.0,
-                us_bonds_correlation: 0.0,
-                international_bonds_correlation: 0.0,
+                forecasts: crate::portfolio::Forecasts {
+                    us_equity_expected_returns: 0.0,
+                    international_equity_expected_returns: 0.0,
+                    bonds_expected_returns: 0.0,
+                    ..Default::default()
+                },
             },
             expenses: crate::Expenses {
                 monthly: monthly_expenses,
