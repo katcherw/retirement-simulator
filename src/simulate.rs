@@ -5,6 +5,7 @@
 **************************************************************************/
 
 use crate::portfolio::Portfolio;
+use crate::social_security::{self, HouseholdBenefits};
 use crate::utils::*;
 use crate::{Input, TaxLevel};
 use chrono::NaiveDate;
@@ -30,9 +31,9 @@ pub struct RetireeInfo {
     pub retirement_date: NaiveDate,
     // first day after the retiree's life expectancy is reached
     pub death_date: NaiveDate,
+    // when the retiree claims their own social security benefit
     pub social_security_date: NaiveDate,
     pub date_of_birth: NaiveDate,
-    social_security_income: f64,
 }
 
 #[derive(Debug, Default)]
@@ -158,36 +159,6 @@ impl TaxRules<'_> {
     }
 }
 
-// this is an estimate. The IRS has a big table for retirement income based on
-// age and retirement date. This routine uses the values from the last row of
-// the table, for younger retirees. The user will enter their personal values
-// from the IRS web site and this routine will interpolate the rest. In the future
-// the whole table should be entered.
-fn get_social_security_monthly_income(
-    retirement_age: u32,
-    benefit_early: f64,
-    benefit_full: f64,
-    benefit_delayed: f64,
-) -> f64 {
-    let min_age = 62;
-    let normal_age = 67;
-    let max_age = 70;
-
-    if retirement_age >= max_age {
-        benefit_delayed
-    } else if retirement_age < min_age {
-        0.0
-    } else if retirement_age >= normal_age {
-        benefit_full
-            + (benefit_delayed - benefit_full) * (retirement_age - normal_age) as f64
-                / (max_age - normal_age) as f64
-    } else {
-        benefit_early
-            + (benefit_full - benefit_early) * (retirement_age - min_age) as f64
-                / (normal_age - min_age) as f64
-    }
-}
-
 // represents a simulation run
 pub struct Simulation<'a> {
     pub simulation_results_: SimulationResults,
@@ -195,6 +166,7 @@ pub struct Simulation<'a> {
     input_: &'a Input,
     current_date_: NaiveDate,
     portfolio_: Portfolio,
+    social_security_: HouseholdBenefits,
     expenses_: f64,
     sum_of_returns_: f64,
     // the social security tax thresholds aren't adjusted for inflation, so
@@ -231,15 +203,21 @@ impl<'a> Simulation<'a> {
                     retiree.social_security_age,
                 ),
                 date_of_birth: retiree.date_of_birth,
-                social_security_income: get_social_security_monthly_income(
-                    retiree.social_security_age,
-                    retiree.social_security_amount_early,
-                    retiree.social_security_amount_full,
-                    retiree.social_security_amount_delayed,
-                ),
             };
             simulation_results.retirees.push(retiree_result);
         }
+
+        let people: Vec<social_security::Person> = input
+            .retirees
+            .iter()
+            .zip(simulation_results.retirees.iter())
+            .map(|(retiree, info)| social_security::Person {
+                date_of_birth: retiree.date_of_birth,
+                pia: retiree.social_security_amount_full,
+                claiming_age: retiree.social_security_age,
+                death_date: info.death_date,
+            })
+            .collect();
 
         let portfolio = input.portfolio;
         let expenses = input.expenses.monthly;
@@ -249,6 +227,7 @@ impl<'a> Simulation<'a> {
             input_: input,
             current_date_: current_date,
             portfolio_: portfolio,
+            social_security_: HouseholdBenefits::new(&people),
             expenses_: expenses,
             sum_of_returns_: 0.0,
             social_security_threshold_scale_: 1.0,
@@ -289,26 +268,9 @@ impl<'a> Simulation<'a> {
             }
         }
 
-        // social security: before or after retirement. After a retiree dies,
-        // the survivor receives the larger of their own benefit and the
-        // deceased's benefit (if the deceased had started collecting).
-        let survivor_benefit = infos
-            .iter()
-            .zip(alive.iter())
-            .filter(|(info, &is_alive)| !is_alive && info.social_security_date < info.death_date)
-            .map(|(info, _)| info.social_security_income)
-            .fold(0.0, f64::max);
-        let mut social_security = 0.0;
-        for (i, info) in infos.iter().enumerate() {
-            if alive[i] {
-                let own_benefit = if date > info.social_security_date {
-                    info.social_security_income
-                } else {
-                    0.0
-                };
-                social_security += f64::max(own_benefit, survivor_benefit);
-            }
-        }
+        // social security (own, spousal, and survivor benefits), before or
+        // after retirement
+        let social_security = self.social_security_.monthly_total(&date);
 
         // all income other than social security is fully taxable
         let mut income = social_security + wages;
@@ -443,42 +405,6 @@ pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_social_security() {
-        let early = 1000.0;
-        let full = 2000.0;
-        let delayed = 4000.0;
-
-        assert_eq!(
-            get_social_security_monthly_income(60, early, full, delayed),
-            0.0
-        );
-        assert_eq!(
-            get_social_security_monthly_income(62, early, full, delayed),
-            early
-        );
-        assert_eq!(
-            get_social_security_monthly_income(67, early, full, delayed),
-            full
-        );
-        assert_eq!(
-            get_social_security_monthly_income(70, early, full, delayed),
-            delayed
-        );
-        assert_eq!(
-            get_social_security_monthly_income(71, early, full, delayed),
-            delayed
-        );
-        assert_eq!(
-            get_social_security_monthly_income(63, early, full, delayed),
-            1200.0
-        );
-        assert_eq!(
-            get_social_security_monthly_income(68, early, full, delayed),
-            2000.0 + 2000.0 / 3.0
-        );
-    }
-
     // 2026 married filing jointly brackets
     const STANDARD_DEDUCTION: f64 = 32200.0;
 
@@ -589,12 +515,10 @@ mod tests {
             salary_annual,
             retirement_contribution_percent: 10.0,
             social_security_age: 67,
+            social_security_amount_full: 0.0,
             pension_age: 0,
             pension_monthly_income: 0.0,
             other_monthly_retirement_income: 0.0,
-            social_security_amount_early: 0.0,
-            social_security_amount_full: 0.0,
-            social_security_amount_delayed: 0.0,
         }
     }
 
@@ -778,18 +702,20 @@ mod tests {
         assert!((first.balance - (1_000_500.0 - 1150.0)).abs() < 0.01);
     }
 
-    // two retirees, both 60 and retired. The first has a pension and the
-    // larger social security benefit, and dies first.
+    // two retirees, both 60 and retired, both claiming social security at
+    // 62 (70% of the full amount). The first has a pension and the larger
+    // benefit (2000 at full retirement age), and dies first. The second's
+    // full amount is half the first's, so there's no spousal benefit.
     fn survivor_input(first_life_expectancy: u32) -> Input {
         let mut first = test_retiree(60, 0.0);
         first.life_expectancy = first_life_expectancy;
         first.pension_monthly_income = 500.0;
         first.social_security_age = 62;
-        first.social_security_amount_early = 2000.0;
+        first.social_security_amount_full = 2000.0;
         let mut second = test_retiree(60, 0.0);
         second.life_expectancy = 66;
         second.social_security_age = 62;
-        second.social_security_amount_early = 1000.0;
+        second.social_security_amount_full = 1000.0;
         let mut input = test_input(vec![first, second], 5000.0);
         input.expenses.survivor_percent = 50.0;
         input
@@ -804,18 +730,20 @@ mod tests {
         let both_collecting = results
             .monthly_snapshot
             .iter()
-            .find(|s| s.date > first.social_security_date)
+            .find(|s| s.date >= first.social_security_date)
             .unwrap();
-        assert_eq!(both_collecting.income, 500.0 + 2000.0 + 1000.0);
+        assert_close(both_collecting.income, 500.0 + 1400.0 + 700.0);
         assert_eq!(both_collecting.expenses, 5000.0);
 
-        // pension stops, survivor switches to the larger benefit, expenses drop
+        // pension stops, survivor switches to the survivor benefit, expenses
+        // drop. The first claimed early, so the survivor gets 82.5% of their
+        // full amount.
         let survivor = results
             .monthly_snapshot
             .iter()
             .find(|s| s.date >= first.death_date)
             .unwrap();
-        assert_eq!(survivor.income, 2000.0);
+        assert_close(survivor.income, 1650.0);
         assert_eq!(survivor.expenses, 2500.0);
 
         // simulation runs until the survivor dies
@@ -825,16 +753,18 @@ mod tests {
     }
 
     #[test]
-    fn test_no_survivor_benefit_if_deceased_never_collected() {
-        // first retiree dies at 62, before collecting social security
+    fn test_survivor_benefit_if_deceased_never_collected() {
+        // first retiree dies at 62, before collecting social security. The
+        // survivor still gets a survivor benefit from their full amount, reduced
+        // for starting at 62 (60 months before survivor FRA).
         let input = survivor_input(61);
         let results = run_simulation(&input).unwrap();
         let survivor = results
             .monthly_snapshot
             .iter()
-            .find(|s| s.date > results.retirees[1].social_security_date)
+            .find(|s| s.date >= results.retirees[1].social_security_date)
             .unwrap();
-        assert_eq!(survivor.income, 1000.0);
+        assert_close(survivor.income, 2000.0 * (1.0 - 0.285 * 60.0 / 84.0));
     }
 
     #[test]
@@ -999,12 +929,13 @@ mod tests {
         }
     }
 
-    // a single retiree collecting $4000/month of social security from 62,
-    // with provisional income of 24,000 just under the 25,000 base
+    // a single retiree collecting $4000/month of social security from 62
+    // (70% of the full amount), with provisional income of 24,000 just under the
+    // 25,000 base
     fn social_security_only_input(inflation: f64) -> Input {
         let mut retiree = test_retiree(60, 0.0);
         retiree.social_security_age = 62;
-        retiree.social_security_amount_early = 4000.0;
+        retiree.social_security_amount_full = 4000.0 / 0.7;
         let mut input = test_input(vec![retiree], 0.0);
         input.tax_rates.expected_inflation = inflation;
         input.tax_rates.single = flat_tax_table(0.0, 10.0);
