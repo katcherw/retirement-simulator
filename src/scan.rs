@@ -62,7 +62,7 @@ impl ScanResults {
         self.sorting_info.sort_by(|a, b| {
             a.num_months
                 .cmp(&b.num_months)
-                .then_with(|| a.ending_balance.partial_cmp(&b.ending_balance).unwrap())
+                .then_with(|| a.ending_balance.total_cmp(&b.ending_balance))
         });
 
         for v in self.sorting_info.iter() {
@@ -203,6 +203,17 @@ mod tests {
             results.failure_dates(),
             vec![date(2027, 12), date(2030, 12)]
         );
+    }
+
+    #[test]
+    fn test_sort_with_nan_balance_does_not_panic() {
+        let results = scan(vec![
+            scenario(120, 100.0),
+            scenario(120, f64::NAN),
+            scenario(120, 200.0),
+        ]);
+        assert_eq!(results.sorted_indices.len(), 3);
+        assert_eq!(results.ending_balance_percentile(0.0), 100.0);
     }
 
     #[test]

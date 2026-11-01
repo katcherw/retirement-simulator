@@ -10,6 +10,11 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::StandardNormal;
 
+// a normal distribution has no lower limit, but a return of -100% or less
+// would make the balance negative (or NaN, since monthly growth is the 12th
+// root of the annual growth). Returns are floored here: a near total loss.
+const MIN_SAMPLED_RETURN: f64 = -99.0;
+
 // Draws annual returns for US equities, international equities, and bonds
 // (in that order) from a normal distribution, with the returns correlated
 // with each other as configured in the forecasts.
@@ -74,7 +79,8 @@ impl ReturnsSampler {
         let mut returns = [0.0; 3];
         for (i, row) in self.cholesky.iter().enumerate() {
             let correlated: f64 = row.iter().zip(independent.iter()).map(|(l, z)| l * z).sum();
-            returns[i] = self.means[i] + self.standard_deviations[i] * correlated;
+            returns[i] =
+                (self.means[i] + self.standard_deviations[i] * correlated).max(MIN_SAMPLED_RETURN);
         }
         returns
     }
@@ -143,7 +149,7 @@ impl MonteCarloScan {
         input: &Input,
         sampler: &ReturnsSampler,
     ) -> Result<scan::Scenario, String> {
-        let mut simulation = simulate::Simulation::new(input);
+        let mut simulation = simulate::Simulation::new(input)?;
 
         'outer: loop {
             let [us_returns, international_returns, bonds_returns] = sampler.sample(&mut self.rng);
@@ -343,6 +349,24 @@ mod tests {
         assert!((correlation(&us, &international) - 0.8).abs() < 0.01);
         assert!((correlation(&us, &bonds) - 0.3).abs() < 0.01);
         assert!((correlation(&international, &bonds) - 0.3).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_samples_never_lose_everything() {
+        // with this much volatility, many raw samples fall below -100%
+        let f = Forecasts {
+            us_equity_standard_deviation: 50.0,
+            international_equity_standard_deviation: 50.0,
+            bonds_standard_deviation: 50.0,
+            ..Forecasts::default()
+        };
+        let sampler = ReturnsSampler::new(&f).unwrap();
+        let mut rng = StdRng::seed_from_u64(1);
+        for _ in 0..10000 {
+            for r in sampler.sample(&mut rng) {
+                assert!(r >= MIN_SAMPLED_RETURN, "{r}");
+            }
+        }
     }
 
     #[test]

@@ -203,14 +203,14 @@ pub struct Simulation<'a> {
 }
 
 impl<'a> Simulation<'a> {
-    pub fn new(input: &'a Input) -> Self {
+    pub fn new(input: &'a Input) -> Result<Self, String> {
         // the household retires (expenses start being paid from the portfolio)
         // when the first retiree retires
         let first_retiree = input
             .retirees
             .iter()
             .min_by_key(|r| add_years(&r.date_of_birth, r.retirement_age))
-            .expect("at least one retiree");
+            .ok_or("at least one retiree is required")?;
         let retirement_date = add_years(&first_retiree.date_of_birth, first_retiree.retirement_age);
         let current_date = input.start_date;
 
@@ -244,7 +244,7 @@ impl<'a> Simulation<'a> {
         let portfolio = input.portfolio;
         let expenses = input.expenses.monthly;
 
-        Self {
+        Ok(Self {
             simulation_results_: simulation_results,
             input_: input,
             current_date_: current_date,
@@ -252,7 +252,7 @@ impl<'a> Simulation<'a> {
             expenses_: expenses,
             sum_of_returns_: 0.0,
             social_security_threshold_scale_: 1.0,
-        }
+        })
     }
 
     // returns true if simulation finished. Returns and inflation are annual
@@ -410,7 +410,7 @@ impl<'a> Simulation<'a> {
         self.current_date_ = self
             .current_date_
             .checked_add_months(chrono::Months::new(1))
-            .unwrap();
+            .ok_or_else(|| format!("simulation ran past the last date ({date})"))?;
         self.social_security_threshold_scale_ /= (1.0 + inflation / 100.0).powf(1.0 / 12.0);
 
         Ok(self.portfolio_.balance() == 0.0)
@@ -418,7 +418,7 @@ impl<'a> Simulation<'a> {
 }
 
 pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
-    let mut simulation = Simulation::new(input);
+    let mut simulation = Simulation::new(input)?;
 
     loop {
         let is_finished = simulation.run_simulation_one_month(
@@ -630,6 +630,12 @@ mod tests {
             },
             start_date: start_date(),
         }
+    }
+
+    #[test]
+    fn test_no_retirees_is_an_error() {
+        let input = test_input(vec![], 0.0);
+        assert!(run_simulation(&input).is_err());
     }
 
     #[test]
