@@ -7,6 +7,7 @@
 * later by the web site.
 **************************************************************************/
 
+pub mod defaults;
 pub mod historical_scan;
 pub mod input;
 pub mod monte_carlo;
@@ -15,6 +16,8 @@ pub mod report;
 pub mod runner;
 pub mod scan;
 pub mod simulate;
+pub mod tax_rates;
 mod utils;
 
-pub use input::{Expenses, Input, Retiree, TaxLevel, TaxRates, TaxTable};
+pub use input::{Expenses, Input, Retiree};
+pub use tax_rates::{TaxLevel, TaxRates, TaxTable};

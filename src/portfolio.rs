@@ -6,6 +6,7 @@
 * allocation.
 **************************************************************************/
 
+use crate::defaults;
 use crate::utils::*;
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +37,17 @@ pub struct Portfolio {
     #[serde(alias = "post-retirement_allocation")]
     pub post_retirement_allocation: Allocation,
 
+    // optional: left out, the built-in forecasts are used
+    #[serde(default)]
+    pub forecasts: Forecasts,
+}
+
+// forecasts for each asset class: real (after inflation) geometric average
+// returns and standard deviations, as percentages. Each value is optional:
+// left out, it comes from the defaults module.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Forecasts {
     pub us_equity_expected_returns: f64,
     pub us_equity_standard_deviation: f64,
     pub international_equity_expected_returns: f64,
@@ -48,6 +60,23 @@ pub struct Portfolio {
     pub us_international_correlation: f64,
     pub us_bonds_correlation: f64,
     pub international_bonds_correlation: f64,
+}
+
+impl Default for Forecasts {
+    fn default() -> Self {
+        Forecasts {
+            us_equity_expected_returns: defaults::US_EQUITY_EXPECTED_RETURNS,
+            us_equity_standard_deviation: defaults::US_EQUITY_STANDARD_DEVIATION,
+            international_equity_expected_returns: defaults::INTERNATIONAL_EQUITY_EXPECTED_RETURNS,
+            international_equity_standard_deviation:
+                defaults::INTERNATIONAL_EQUITY_STANDARD_DEVIATION,
+            bonds_expected_returns: defaults::BONDS_EXPECTED_RETURNS,
+            bonds_standard_deviation: defaults::BONDS_STANDARD_DEVIATION,
+            us_international_correlation: defaults::US_INTERNATIONAL_CORRELATION,
+            us_bonds_correlation: defaults::US_BONDS_CORRELATION,
+            international_bonds_correlation: defaults::INTERNATIONAL_BONDS_CORRELATION,
+        }
+    }
 }
 
 impl Portfolio {
@@ -111,15 +140,7 @@ mod tests {
             roth_balance,
             pre_retirement_allocation: allocation,
             post_retirement_allocation: allocation,
-            us_equity_expected_returns: 0.0,
-            us_equity_standard_deviation: 0.0,
-            international_equity_expected_returns: 0.0,
-            international_equity_standard_deviation: 0.0,
-            bonds_expected_returns: 0.0,
-            bonds_standard_deviation: 0.0,
-            us_international_correlation: 0.0,
-            us_bonds_correlation: 0.0,
-            international_bonds_correlation: 0.0,
+            forecasts: Forecasts::default(),
         }
     }
 

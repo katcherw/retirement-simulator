@@ -90,38 +90,38 @@ whether the simulation is for a single person or married couple. For a single
 person, simply delete one of the blocks. The age shown in the output is the age
 of the retiree in the first block.
 
-| Value | Description |
-| --- | --- |
-| name | Used for reporting purposes. |
-| date_of_birth | Entered in mm/dd/yyyy (yyyy-mm-dd is also accepted). |
-| retirement_age | Age when this retiree's wages and contributions end. Withdrawals from investments to pay for expenses begin when the first retiree retires; until the other retiree retires, their salary (minus contributions) counts as income. |
-| life_expectancy | Many experts recommend to plan to around 90 so you don't run out of money if all goes well. |
-| wage_annual_salary | This is your pre-retirement salary. It is used to calculate your investment contributions, and as income while your spouse is retired and you are still working. |
-| retirement_contribution_percent | Percentage of salary that you're contributing to your retirement accounts. |
-| social_security_age | Age when you intend to take social security. You can try different ages to find best one to use. Note this doesn't need to be the retirement age. |
-| pension_age | Age when you start receiving your pension benefits |
-| pension_monthly_income | Monthly income from your pension |
-| other_monthly_retirement_income | Any other source of income |
+| Value                           | Description                                                                                                                                                                                                                       |
+| ---                             | ---                                                                                                                                                                                                                               |
+| name                            | Used for reporting purposes.                                                                                                                                                                                                      |
+| date_of_birth                   | Entered in mm/dd/yyyy (yyyy-mm-dd is also accepted).                                                                                                                                                                              |
+| retirement_age                  | Age when this retiree's wages and contributions end. Withdrawals from investments to pay for expenses begin when the first retiree retires; until the other retiree retires, their salary (minus contributions) counts as income. |
+| life_expectancy                 | Many experts recommend to plan to around 90 so you don't run out of money if all goes well.                                                                                                                                       |
+| wage_annual_salary              | This is your pre-retirement salary. It is used to calculate your investment contributions, and as income while your spouse is retired and you are still working.                                                                  |
+| retirement_contribution_percent | Percentage of salary that you're contributing to your retirement accounts.                                                                                                                                                        |
+| social_security_age             | Age when you intend to take social security. You can try different ages to find best one to use. Note this doesn't need to be the retirement age.                                                                                 |
+| pension_age                     | Age when you start receiving your pension benefits                                                                                                                                                                                |
+| pension_monthly_income          | Monthly income from your pension                                                                                                                                                                                                  |
+| other_monthly_retirement_income | Any other source of income                                                                                                                                                                                                        |
 
 Also in the retirees section is the social security amounts. These depend on
 your age and earnings history.  To get these values, go to the [Social Security
 Administration web site](https://www.ssa.gov/myaccount), creating an account,
 and entering in the values reported for you.
 
-| Value | Description |
-| --- | --- |
-| social_security_amount_early | Amount if you elect social security at age 62 |
-| social_security_amount_full | Amount if you elect social security at age 67 |
+| Value                          | Description                                   |
+| ---                            | ---                                           |
+| social_security_amount_early   | Amount if you elect social security at age 62 |
+| social_security_amount_full    | Amount if you elect social security at age 67 |
 | social_security_amount_delayed | Amount if you elect social security at age 70 |
 
 ### Portfolio
 
 The portfolio section represents your investment accounts.
 
-| Value | Description |
-| --- | --- |
-| balance | Today's balance of all accounts except Roth: 401(k), 403(b), traditional IRA, and brokerage accounts. Withdrawals are taxed as ordinary income. Contributions and any income left over after expenses and taxes are added here. |
-| roth_balance | Today's balance of Roth IRA, Roth 401(k), and HSA accounts. Withdrawals aren't taxed. Optional; if it's left out, all savings are treated as `balance`. |
+| Value        | Description                                                                                                                                                                                                                     |
+| ---          | ---                                                                                                                                                                                                                             |
+| balance      | Today's balance of all accounts except Roth: 401(k), 403(b), traditional IRA, and brokerage accounts. Withdrawals are taxed as ordinary income. Contributions and any income left over after expenses and taxes are added here. |
+| roth_balance | Today's balance of Roth IRA, Roth 401(k), and HSA accounts. Withdrawals aren't taxed. Optional; if it's left out, all savings are treated as `balance`.                                                                         |
 
 Withdrawals come from `balance` first, and from `roth_balance` only after
 `balance` runs out. Every account holds the same asset allocation (below).
@@ -138,15 +138,18 @@ your asset allocation after retirement. In each block, this is the percentage
 allocated to US equities, international equities, and bonds. Each block should
 add up to exactly 100.0.
 
-| Value | Description |
-| --- | --- |
-| us_equities | Percentage of US stocks |
+| Value         | Description                        |
+| ---           | ---                                |
+| us_equities   | Percentage of US stocks            |
 | international | Percentage of international stocks |
-| bonds | Percentage of bonds |
+| bonds         | Percentage of bonds                |
 
-The next group of values is the expected returns and expected standard deviation
-of returns. The sample file contains forecasted longterm returns published by
-Fidelity Investments. You may change these as you like. All expected returns are
+The optional `forecasts` block inside the portfolio block has the expected
+returns and expected standard deviation of returns, and the correlations below.
+Forecasted longterm returns published by Fidelity Investments are built in (see
+`src/defaults.rs`), and the sample file spells them out. Leave out the block,
+or any value in it, to use the built-in value, or change them as you like. All
+expected returns are
 real returns as opposed to nominal returns. In other words, the returns are the
 actual returns minus inflation.
 
@@ -156,13 +159,13 @@ actually grows at over many years. It is lower than the simple average of the
 yearly returns, because volatility drags down compound growth: a +50% year
 followed by a -50% year averages 0%, but leaves you with only 75% of your money.
 
-The last group of values is the correlation of annual returns between the asset
-classes, used by the Monte Carlo simulation.
+The last group of values in the `forecasts` block is the correlation of annual
+returns between the asset classes, used by the Monte Carlo simulation.
 
-| Value | Description |
-| --- | --- |
-| us_international_correlation | Correlation between US and international stocks. The sample file uses 0.8. |
-| us_bonds_correlation | Correlation between US stocks and bonds. The sample file uses 0.3. |
+| Value                           | Description                                                                   |
+| ---                             | ---                                                                           |
+| us_international_correlation    | Correlation between US and international stocks. The sample file uses 0.8.    |
+| us_bonds_correlation            | Correlation between US stocks and bonds. The sample file uses 0.3.            |
 | international_bonds_correlation | Correlation between international stocks and bonds. The sample file uses 0.3. |
 
 Correlations range from -1.0 (always move in opposite directions) to 1.0 (always
@@ -179,40 +182,28 @@ The expenses section is your estimated monthly expenses during retirement. A
 good way of estimating this amount is using your current take-home pay (after
 taxes, retirement contributions, benefits, etc.).
 
-| Value | Description |
-| --- | --- |
-| monthly | Monthly expenses during retirement. |
+| Value            | Description                                                                                                                               |
+| ---              | ---                                                                                                                                       |
+| monthly          | Monthly expenses during retirement.                                                                                                       |
 | survivor_percent | Percentage of `monthly` that remains after one spouse dies (e.g. 70.0). Use 100.0 for no change. For a single retiree this has no effect. |
 
 ### Tax Rates
 
-This section contains the IRS tax rates and standard deduction for two filing
-statuses, `married_filing_jointly` and `single`. The sample file contains the
-2026 values; you can update them for future years. Both blocks are required.
-
-The married filing jointly table is used while two retirees are alive. The
-single table is used for a single retiree, and for the surviving spouse after
-one retiree dies.
-
-Each block has a `standard_deduction` and a list of `levels`. Each entry in
-`levels` is one tax bracket: `income` is the taxable income (after the standard
-deduction) where the bracket starts, and `rate` is the percentage applied to
-income within that bracket. The first level must start at `0.0`, and the last
-level applies to all income above it. Rates must be below 50%.
-
-| Value | Description |
-| --- | --- |
-| expected_inflation | Expected annual inflation (percentage), used to shrink the social security thresholds below. The historical simulation uses the actual inflation for each year instead. |
-| standard_deduction | The standard deduction for the filing status. |
-| additional_deduction_65_or_older | Added to the standard deduction for each retiree who is 65 or older. |
-| social_security_base | Provisional income above which up to 50% of social security is taxable ($32,000 married, $25,000 single). |
-| social_security_adjusted_base | Provisional income above which up to 85% of social security is taxable ($44,000 married, $34,000 single). |
+Tax rates aren't part of the configuration: the 2026 federal tax brackets,
+standard deductions, and the additional deduction for retirees 65 or older are
+built in (see `src/tax_rates.rs`), for two filing statuses. Married filing
+jointly is used while two retirees are alive. Single is used for a single
+retiree, and for the surviving spouse after one retiree dies. Tax brackets are
+adjusted for inflation every year, so in today's dollars they stay about the
+same in future years.
 
 Social security is taxed based on provisional income: all other taxable income
 (including withdrawals) plus half of the social security benefits. Unlike the
 tax brackets, the social security thresholds are set by law and are not
-adjusted for inflation, so they get smaller every year in today's dollars. Over
-time, more retirees pay tax on 85% of their benefits.
+adjusted for inflation ($32,000 and $44,000 married, $25,000 and $34,000
+single), so they get smaller every year in today's dollars, assuming 2.5%
+inflation. The historical simulation uses the actual inflation for each year
+instead. Over time, more retirees pay tax on 85% of their benefits.
 
 ## Output
 
@@ -229,17 +220,17 @@ to 0).
 
 The output is a table with the following columns:
 
-| Column | Description |
-| --- | --- |
-| Year | Year that is simulated |
-| Age | Age of first retiree |
-| Balance | Total balance in all accounts in today's dollars |
-| Expenses | The retirement expenses in today's dollars |
-| Income | The total income from all sources during retirement |
-| Tax | The estimated tax paid on the income and withdrawals from the investment accounts during retirement |
-| Rate | The estimated marginal tax bracket during retirement. Withdrawals can be taxed at a higher effective rate when they make more social security taxable. |
-| Draw | The percentage of assets withdrawn from the investment accounts. A popular rule of thumb aims to keep this at less than 4%. |
-| Yield | The annual investment yield for the portfolio |
+| Column   | Description                                                                                                                                            |
+| ---      | ---                                                                                                                                                    |
+| Year     | Year that is simulated                                                                                                                                 |
+| Age      | Age of first retiree                                                                                                                                   |
+| Balance  | Total balance in all accounts in today's dollars                                                                                                       |
+| Expenses | The retirement expenses in today's dollars                                                                                                             |
+| Income   | The total income from all sources during retirement                                                                                                    |
+| Tax      | The estimated tax paid on the income and withdrawals from the investment accounts during retirement                                                    |
+| Rate     | The estimated marginal tax bracket during retirement. Withdrawals can be taxed at a higher effective rate when they make more social security taxable. |
+| Draw     | The percentage of assets withdrawn from the investment accounts. A popular rule of thumb aims to keep this at less than 4%.                            |
+| Yield    | The annual investment yield for the portfolio                                                                                                          |
 
 ### Historical Simulation
 
