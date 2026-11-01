@@ -16,6 +16,7 @@ pub mod report;
 pub mod runner;
 pub mod scan;
 pub mod simulate;
+pub mod social_security;
 pub mod tax_rates;
 mod utils;
 

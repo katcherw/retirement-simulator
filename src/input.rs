@@ -25,13 +25,14 @@ pub struct Retiree {
     #[serde(rename = "wage_annual_salary")]
     pub salary_annual: f64,
     pub retirement_contribution_percent: f64,
+    // age in whole years when this retiree claims social security (62-70)
     pub social_security_age: u32,
+    // the monthly benefit at full retirement age from the SSA web site (the
+    // primary insurance amount). Benefits at other ages are calculated from it.
+    pub social_security_amount_full: f64,
     pub pension_age: u32,
     pub pension_monthly_income: f64,
     pub other_monthly_retirement_income: f64,
-    pub social_security_amount_early: f64,
-    pub social_security_amount_full: f64,
-    pub social_security_amount_delayed: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,6 +140,7 @@ impl Input {
 // limits on the input, generous enough for any real plan
 pub const MAX_RETIREES: usize = 2;
 pub const MAX_AGE: u32 = 120;
+pub const MIN_SOCIAL_SECURITY_AGE: u32 = 62;
 // any single balance, income or expense amount
 pub const MAX_AMOUNT: f64 = 1.0e12;
 // expected returns are real (after inflation) annual percentages. At -100%
@@ -165,6 +167,13 @@ fn validate_retiree(retiree: &Retiree, start_date: &NaiveDate) -> Result<(), Str
             ));
         }
     }
+    if retiree.social_security_age < MIN_SOCIAL_SECURITY_AGE {
+        return Err(format!(
+            "{name}: social_security_age must be at least {MIN_SOCIAL_SECURITY_AGE} \
+             (currently {})",
+            retiree.social_security_age
+        ));
+    }
     let amounts = [
         (retiree.salary_annual, "wage_annual_salary"),
         (retiree.pension_monthly_income, "pension_monthly_income"),
@@ -173,16 +182,8 @@ fn validate_retiree(retiree: &Retiree, start_date: &NaiveDate) -> Result<(), Str
             "other_monthly_retirement_income",
         ),
         (
-            retiree.social_security_amount_early,
-            "social_security_amount_early",
-        ),
-        (
             retiree.social_security_amount_full,
             "social_security_amount_full",
-        ),
-        (
-            retiree.social_security_amount_delayed,
-            "social_security_amount_delayed",
         ),
     ];
     for (amount, field) in amounts {
@@ -270,6 +271,14 @@ fn explain_parse_error(text: &str, error: serde_yaml_ng::Error) -> String {
             "tax_rates is no longer part of the input file: the {TAX_YEAR} federal \
              tax rates are built in. Remove the tax_rates block."
         ),
+        // older input files also had social security amounts at 62 and 70
+        Ok(value) if has_old_social_security_amounts(&value) => {
+            "social_security_amount_early and social_security_amount_delayed are no \
+             longer used: the benefit at social_security_age is calculated from \
+             social_security_amount_full, the amount at full retirement age. Remove \
+             them."
+                .to_string()
+        }
         // older input files had the forecasts directly in the portfolio block
         Ok(value) if has_forecasts_in_portfolio(&value) => {
             "the expected returns, standard deviations, and correlations now go in \
@@ -279,6 +288,19 @@ fn explain_parse_error(text: &str, error: serde_yaml_ng::Error) -> String {
         }
         _ => format!("Invalid input: {error}"),
     }
+}
+
+fn has_old_social_security_amounts(value: &serde_yaml_ng::Value) -> bool {
+    let Some(retirees) = value["retirees"].as_sequence() else {
+        return false;
+    };
+    retirees.iter().any(|retiree| {
+        retiree.as_mapping().is_some_and(|retiree| {
+            retiree.keys().filter_map(|key| key.as_str()).any(|key| {
+                key == "social_security_amount_early" || key == "social_security_amount_delayed"
+            })
+        })
+    })
 }
 
 fn has_forecasts_in_portfolio(value: &serde_yaml_ng::Value) -> bool {
@@ -728,6 +750,40 @@ mod tests {
         })
         .unwrap_err();
         assert!(err.contains("post_retirement_allocation"), "{err}");
+    }
+
+    #[test]
+    fn test_parse_social_security() {
+        let input = parse_sample();
+        assert_eq!(input.retirees[0].social_security_amount_full, 3870.0);
+        assert_eq!(input.retirees[0].social_security_age, 67);
+
+        let err = parse_modified_sample("social_security_age: 67", "social_security_age: 61")
+            .unwrap_err();
+        assert!(
+            err.contains("social_security_age must be at least 62"),
+            "{err}"
+        );
+        let err = parse_modified_sample(
+            "social_security_amount_full: 3870.0",
+            "social_security_amount_full: -1.0",
+        )
+        .unwrap_err();
+        assert!(err.contains("social_security_amount_full"), "{err}");
+    }
+
+    #[test]
+    fn test_old_social_security_amounts() {
+        // older input files also had the amounts at 62 and 70
+        let old = sample().replacen(
+            "social_security_amount_full: 3870.0",
+            "social_security_amount_early: 2693.0\n       \
+             social_security_amount_full: 3870.0\n       \
+             social_security_amount_delayed: 4809.0",
+            1,
+        );
+        let err = Input::from_yaml(&old, start_date()).unwrap_err();
+        assert!(err.contains("are no longer used"), "{err}");
     }
 
     #[test]

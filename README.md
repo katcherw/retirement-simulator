@@ -98,21 +98,37 @@ of the retiree in the first block.
 | life_expectancy                 | Many experts recommend to plan to around 90 so you don't run out of money if all goes well.                                                                                                                                       |
 | wage_annual_salary              | This is your pre-retirement salary. It is used to calculate your investment contributions, and as income while your spouse is retired and you are still working.                                                                  |
 | retirement_contribution_percent | Percentage of salary that you're contributing to your retirement accounts.                                                                                                                                                        |
-| social_security_age             | Age when you intend to take social security. You can try different ages to find best one to use. Note this doesn't need to be the retirement age.                                                                                 |
+| social_security_age             | Age (62 to 70) when you intend to claim social security. You can try different ages to find the best one. This doesn't need to be the retirement age. |
 | pension_age                     | Age when you start receiving your pension benefits                                                                                                                                                                                |
 | pension_monthly_income          | Monthly income from your pension                                                                                                                                                                                                  |
 | other_monthly_retirement_income | Any other source of income                                                                                                                                                                                                        |
 
-Also in the retirees section is the social security amounts. These depend on
-your age and earnings history.  To get these values, go to the [Social Security
-Administration web site](https://www.ssa.gov/myaccount), creating an account,
-and entering in the values reported for you.
+Also in the retirees section is the social security benefit at full
+retirement age (the SSA calls it the primary insurance amount). It depends on
+your earnings history. To get it, go to the [Social Security Administration
+web site](https://www.ssa.gov/myaccount), create an account, and enter the
+amount reported for your full retirement age.
 
-| Value                          | Description                                   |
-| ---                            | ---                                           |
-| social_security_amount_early   | Amount if you elect social security at age 62 |
-| social_security_amount_full    | Amount if you elect social security at age 67 |
-| social_security_amount_delayed | Amount if you elect social security at age 70 |
+| Value                       | Description |
+| ---                         | ---         |
+| social_security_amount_full | Monthly benefit at full retirement age. Enter 0.0 for a spouse who never worked: their spousal and survivor benefits come from the other retiree's amount. |
+
+The benefits are then calculated from the full amounts:
+- **Your own benefit** at `social_security_age`: reduced if you claim before
+  your full retirement age (67 if born in 1960 or later, earlier for older
+  retirees), down to 70% at 62. Delayed credits add 8% a year after full
+  retirement age, up to 70.
+- **Spousal benefit** while both retirees are alive: up to half of the other
+  retiree's full amount, minus your own full amount. It's reduced if started
+  before your full retirement age (down to 32.5% of the other's full amount at
+  62), can't start until
+  both of you have claimed, and doesn't grow after full retirement age.
+- **Survivor benefit** after the other retiree dies: what they were receiving,
+  including delayed credits. If they claimed early, at least 82.5% of their
+  full amount. If they died before claiming, their full amount plus any
+  delayed credits earned by then. It's reduced if started before your survivor full retirement age
+  (down to 71.5% at 60). The survivor receives the larger of their own benefit
+  and the survivor benefit.
 
 ### Portfolio
 
@@ -326,13 +342,15 @@ that it is futile to try to focus on the small details. In that spirit, this
 application simplified some assumptions. However, as the application evolves,
 these limitations may be removed in the future.
 
-**Social security income.** There is no formula to calculate social security
-benefits. The Social Security Administration publishes tables to look up the
-income based on the earnings history and the age of the retiree. Instead of
-reproducing this table in code, this application simply makes an estimate based
-on the values reported by the Social Security web site. These values include
-estimated benefits at ages 62, 67, and 70 (for later retirees). Ages in between
-are simply interpolated (averaged) between the reported values.
+**Social security income.** Benefits are calculated from each retiree's full
+amount using the SSA rules for full retirement age, early reductions, delayed
+credits, spousal benefits, and survivor benefits. Claiming ages are whole
+years. A survivor is assumed to start the survivor benefit when the spouse
+dies, but not before the earlier of their own `social_security_age` and their
+survivor full retirement age. The full amount reported by the SSA assumes you keep
+working until you claim. The earnings test (benefits withheld while working
+before full retirement age), the government pension offset, the lump-sum death
+payment, and benefits for children are not modelled.
 
 **Income tax.** All income other than social security (including what is
 withdrawn from `balance`) is taxed at the normal income tax rate. Roth
@@ -349,10 +367,9 @@ rates immediately, although in practice they can file jointly for the year of
 death.
 
 **Death of a spouse.** When a retiree reaches their life expectancy, their
-wages, pension, and other income stop. The survivor receives the larger of their
-own social security benefit and the deceased's benefit, if the deceased had
-started collecting it. Pension survivor benefits are not modelled, and the
-survivor benefit starts immediately regardless of the survivor's age.
+wages, pension, and other income stop. The survivor receives social security
+survivor benefits as described above. Pension survivor benefits are not
+modelled.
 
 ## Disclaimer
 
