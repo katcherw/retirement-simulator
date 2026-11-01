@@ -26,6 +26,8 @@ pub struct RunResults {
 }
 
 pub fn run_all(input: &Input, seed: u64) -> Result<RunResults, String> {
+    // Input::from_yaml validates, but a plan built in code may not have been
+    input.validate()?;
     let uniform =
         simulate::run_simulation(input).map_err(|e| format!("Error running simulation: {e}"))?;
 
@@ -65,6 +67,17 @@ mod tests {
             .iter()
             .map(|s| s.ending_balance())
             .collect()
+    }
+
+    #[test]
+    fn test_unvalidated_plan_is_rejected() {
+        // a plan built in code, e.g. by the web site, skips from_yaml
+        let start_date = NaiveDate::from_ymd_opt(2026, 1, 15).unwrap();
+        let text = std::fs::read_to_string("input.yaml").unwrap();
+        let mut input = Input::from_yaml(&text, start_date).unwrap();
+        input.retirees[0].life_expectancy = u32::MAX;
+        let err = run_all(&input, 42).err().unwrap();
+        assert!(err.contains("life_expectancy"), "{err}");
     }
 
     #[test]

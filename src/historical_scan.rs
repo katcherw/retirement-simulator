@@ -185,7 +185,7 @@ impl HistoricalScan {
         starting_index: usize,
         input: &Input,
     ) -> Result<scan::Scenario, String> {
-        let mut simulation = simulate::Simulation::new(input);
+        let mut simulation = simulate::Simulation::new(input)?;
         let mut index = starting_index;
 
         'outer: loop {

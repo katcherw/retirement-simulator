@@ -8,7 +8,7 @@
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
-use crate::portfolio::{Allocation, Portfolio};
+use crate::portfolio::{Allocation, Forecasts, Portfolio};
 use crate::tax_rates::{TaxRates, TAX_YEAR};
 use crate::{monte_carlo, utils};
 
@@ -96,10 +96,17 @@ impl Input {
         serde_yaml_ng::to_string(self).map_err(|e| e.to_string())
     }
 
-    // checks that the values make sense
+    // checks that the values make sense, so the simulations can't run
+    // forever, overflow, or produce NaN balances
     pub fn validate(&self) -> Result<(), String> {
-        if self.retirees.is_empty() {
-            return Err("at least one retiree is required".to_string());
+        if self.retirees.is_empty() || self.retirees.len() > MAX_RETIREES {
+            return Err(format!(
+                "there must be one or two retirees (currently {})",
+                self.retirees.len()
+            ));
+        }
+        for retiree in self.retirees.iter() {
+            validate_retiree(retiree, &self.start_date)?;
         }
         if self
             .retirees
@@ -110,9 +117,8 @@ impl Input {
         }
 
         let portfolio = &self.portfolio;
-        if portfolio.pre_tax_balance < 0.0 || portfolio.roth_balance < 0.0 {
-            return Err("portfolio balances can't be negative".to_string());
-        }
+        check_amount(portfolio.pre_tax_balance, "portfolio balance")?;
+        check_amount(portfolio.roth_balance, "portfolio roth_balance")?;
         validate_allocation(
             &portfolio.pre_retirement_allocation,
             "pre_retirement_allocation",
@@ -121,23 +127,137 @@ impl Input {
             &portfolio.post_retirement_allocation,
             "post_retirement_allocation",
         )?;
-        let forecasts = &portfolio.forecasts;
-        let standard_deviations = [
-            forecasts.us_equity_standard_deviation,
-            forecasts.international_equity_standard_deviation,
-            forecasts.bonds_standard_deviation,
-        ];
-        if standard_deviations.iter().any(|&v| v < 0.0) {
-            return Err("standard deviations can't be negative".to_string());
-        }
-        monte_carlo::ReturnsSampler::new(forecasts)?;
+        validate_forecasts(&portfolio.forecasts)?;
 
-        if self.expenses.monthly < 0.0 || self.expenses.survivor_percent < 0.0 {
-            return Err("expenses can't be negative".to_string());
-        }
+        check_amount(self.expenses.monthly, "expenses monthly")?;
+        check_percent(self.expenses.survivor_percent, "expenses survivor_percent")?;
 
         Ok(())
     }
+}
+
+// limits on the input, generous enough for any real plan
+pub const MAX_RETIREES: usize = 2;
+pub const MAX_AGE: u32 = 120;
+// any single balance, income or expense amount
+pub const MAX_AMOUNT: f64 = 1.0e12;
+// expected returns are real (after inflation) annual percentages. At -100%
+// or below, compounding breaks down (a negative growth factor).
+pub const MIN_EXPECTED_RETURN: f64 = -50.0;
+pub const MAX_EXPECTED_RETURN: f64 = 50.0;
+pub const MAX_STANDARD_DEVIATION: f64 = 50.0;
+
+fn validate_retiree(retiree: &Retiree, start_date: &NaiveDate) -> Result<(), String> {
+    let name = &retiree.name;
+    if retiree.date_of_birth > *start_date {
+        return Err(format!("{name}: date_of_birth is in the future"));
+    }
+    let ages = [
+        (retiree.retirement_age, "retirement_age"),
+        (retiree.life_expectancy, "life_expectancy"),
+        (retiree.social_security_age, "social_security_age"),
+        (retiree.pension_age, "pension_age"),
+    ];
+    for (age, field) in ages {
+        if age > MAX_AGE {
+            return Err(format!(
+                "{name}: {field} can't be more than {MAX_AGE} (currently {age})"
+            ));
+        }
+    }
+    let amounts = [
+        (retiree.salary_annual, "wage_annual_salary"),
+        (retiree.pension_monthly_income, "pension_monthly_income"),
+        (
+            retiree.other_monthly_retirement_income,
+            "other_monthly_retirement_income",
+        ),
+        (
+            retiree.social_security_amount_early,
+            "social_security_amount_early",
+        ),
+        (
+            retiree.social_security_amount_full,
+            "social_security_amount_full",
+        ),
+        (
+            retiree.social_security_amount_delayed,
+            "social_security_amount_delayed",
+        ),
+    ];
+    for (amount, field) in amounts {
+        check_amount(amount, &format!("{name}: {field}"))?;
+    }
+    check_percent(
+        retiree.retirement_contribution_percent,
+        &format!("{name}: retirement_contribution_percent"),
+    )
+}
+
+// checks that a value is a number in the range, inclusive. NaN fails, since
+// it isn't in any range.
+fn check_range(value: f64, min: f64, max: f64, name: &str) -> Result<(), String> {
+    if (min..=max).contains(&value) {
+        Ok(())
+    } else {
+        Err(format!(
+            "{name} must be between {min} and {max} (currently {value})"
+        ))
+    }
+}
+
+fn check_amount(value: f64, name: &str) -> Result<(), String> {
+    if value < 0.0 {
+        return Err(format!("{name} can't be negative"));
+    }
+    check_range(value, 0.0, MAX_AMOUNT, name)
+}
+
+fn check_percent(value: f64, name: &str) -> Result<(), String> {
+    if value < 0.0 {
+        return Err(format!("{name} can't be negative"));
+    }
+    check_range(value, 0.0, 100.0, name)
+}
+
+fn validate_forecasts(forecasts: &Forecasts) -> Result<(), String> {
+    let expected_returns = [
+        (
+            forecasts.us_equity_expected_returns,
+            "us_equity_expected_returns",
+        ),
+        (
+            forecasts.international_equity_expected_returns,
+            "international_equity_expected_returns",
+        ),
+        (forecasts.bonds_expected_returns, "bonds_expected_returns"),
+    ];
+    for (value, name) in expected_returns {
+        check_range(value, MIN_EXPECTED_RETURN, MAX_EXPECTED_RETURN, name)?;
+    }
+    let standard_deviations = [
+        (
+            forecasts.us_equity_standard_deviation,
+            "us_equity_standard_deviation",
+        ),
+        (
+            forecasts.international_equity_standard_deviation,
+            "international_equity_standard_deviation",
+        ),
+        (
+            forecasts.bonds_standard_deviation,
+            "bonds_standard_deviation",
+        ),
+    ];
+    for (value, name) in standard_deviations {
+        if value < 0.0 {
+            return Err("standard deviations can't be negative".to_string());
+        }
+        check_range(value, 0.0, MAX_STANDARD_DEVIATION, name)?;
+    }
+    // checks the correlations
+    monte_carlo::ReturnsSampler::new(forecasts)?;
+    Ok(())
 }
 
 // a friendlier message for some common mistakes, otherwise serde's error,
@@ -180,6 +300,9 @@ fn validate_allocation(allocation: &Allocation, name: &str) -> Result<(), String
     ];
     if values.iter().any(|&v| v < 0.0) {
         return Err(format!("{name} percentages can't be negative"));
+    }
+    if values.iter().any(|v| !v.is_finite()) {
+        return Err(format!("{name} percentages must be numbers"));
     }
     let total: f64 = values.iter().sum();
     if (total - 100.0).abs() > 0.01 {
@@ -450,6 +573,161 @@ mod tests {
         let input = Input::from_yaml(&yaml, start_date()).unwrap();
         assert_eq!(input.to_yaml().unwrap(), yaml);
         assert!(yaml.contains("date_of_birth: 09/30/1960"), "{yaml}");
+    }
+
+    // the sample input after changing it in code, to test validation of
+    // values that are awkward to write as text
+    fn validate_modified(change: impl FnOnce(&mut Input)) -> Result<(), String> {
+        let mut input = parse_sample();
+        change(&mut input);
+        input.validate()
+    }
+
+    #[test]
+    fn test_validation_requires_one_or_two_retirees() {
+        let err = validate_modified(|input| input.retirees.clear()).unwrap_err();
+        assert!(err.contains("one or two retirees"), "{err}");
+        let err = validate_modified(|input| {
+            let third = input.retirees[0].clone();
+            input.retirees.push(third);
+        })
+        .unwrap_err();
+        assert!(err.contains("one or two retirees (currently 3)"), "{err}");
+        validate_modified(|input| {
+            input.retirees.pop();
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn test_validation_limits_ages() {
+        // a huge life expectancy would make the simulation run for ages, or
+        // overflow the date arithmetic
+        let err = parse_modified_sample("life_expectancy: 90", "life_expectancy: 4000000000")
+            .unwrap_err();
+        assert!(
+            err.contains("life_expectancy can't be more than 120"),
+            "{err}"
+        );
+        parse_modified_sample("life_expectancy: 90", "life_expectancy: 120").unwrap();
+        for field in [
+            "retirement_age: 67",
+            "social_security_age: 67",
+            "pension_age: 62",
+        ] {
+            let name = field.split(':').next().unwrap();
+            let err = parse_modified_sample(field, &format!("{name}: 121")).unwrap_err();
+            assert!(err.contains(&format!("{name} can't be more than")), "{err}");
+        }
+    }
+
+    #[test]
+    fn test_validation_rejects_future_birth_date() {
+        let err = parse_modified_sample("9/30/1960", "9/30/2060").unwrap_err();
+        assert!(
+            err.contains("John Doe: date_of_birth is in the future"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn test_validation_limits_expected_returns() {
+        let err = parse_modified_sample(
+            "bonds_expected_returns: 2.5",
+            "bonds_expected_returns: -100.0",
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("bonds_expected_returns must be between"),
+            "{err}"
+        );
+        let err = parse_modified_sample(
+            "us_equity_expected_returns: 3.2",
+            "us_equity_expected_returns: 1000.0",
+        )
+        .unwrap_err();
+        assert!(err.contains("us_equity_expected_returns"), "{err}");
+        parse_modified_sample(
+            "bonds_expected_returns: 2.5",
+            "bonds_expected_returns: -3.0",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_validation_limits_standard_deviations() {
+        let err = parse_modified_sample(
+            "bonds_standard_deviation: 6.0",
+            "bonds_standard_deviation: 500.0",
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("bonds_standard_deviation must be between"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn test_validation_limits_percentages() {
+        let err = parse_modified_sample(
+            "retirement_contribution_percent: 12.0",
+            "retirement_contribution_percent: 150.0",
+        )
+        .unwrap_err();
+        assert!(err.contains("retirement_contribution_percent"), "{err}");
+        let err = parse_modified_sample(
+            "retirement_contribution_percent: 12.0",
+            "retirement_contribution_percent: -1.0",
+        )
+        .unwrap_err();
+        assert!(err.contains("can't be negative"), "{err}");
+        let err = parse_modified_sample("survivor_percent: 100.0", "survivor_percent: 101.0")
+            .unwrap_err();
+        assert!(err.contains("survivor_percent"), "{err}");
+    }
+
+    #[test]
+    fn test_validation_limits_amounts() {
+        let err = parse_modified_sample("monthly: 9000.0", "monthly: -1.0").unwrap_err();
+        assert!(err.contains("expenses monthly can't be negative"), "{err}");
+        let err = parse_modified_sample("balance: 900000.0", "balance: 1.0e300").unwrap_err();
+        assert!(err.contains("portfolio balance must be between"), "{err}");
+        let err = parse_modified_sample(
+            "pension_monthly_income: 1000.0",
+            "pension_monthly_income: -1000.0",
+        )
+        .unwrap_err();
+        assert!(err.contains("John Doe: pension_monthly_income"), "{err}");
+    }
+
+    #[test]
+    fn test_validation_rejects_nan_and_infinity() {
+        // YAML can spell these, and JSON from code could contain them
+        for (from, to) in [
+            ("balance: 900000.0", "balance: .nan"),
+            ("monthly: 9000.0", "monthly: .inf"),
+            ("wage_annual_salary: 75000.0", "wage_annual_salary: .nan"),
+            ("survivor_percent: 100.0", "survivor_percent: .nan"),
+            (
+                "bonds_expected_returns: 2.5",
+                "bonds_expected_returns: .nan",
+            ),
+            (
+                "bonds_standard_deviation: 6.0",
+                "bonds_standard_deviation: .inf",
+            ),
+            ("us_bonds_correlation: 0.3", "us_bonds_correlation: .nan"),
+        ] {
+            assert!(
+                parse_modified_sample(from, to).is_err(),
+                "{to} was accepted"
+            );
+        }
+        let err = validate_modified(|input| {
+            input.portfolio.post_retirement_allocation.bonds = f64::NAN;
+        })
+        .unwrap_err();
+        assert!(err.contains("post_retirement_allocation"), "{err}");
     }
 
     #[test]
