@@ -17,6 +17,9 @@
 *    starts it before their survivor FRA. A survivor receives the larger of
 *    their own benefit and the survivor benefit, not both.
 *
+* Benefits collected before FRA while still working are withheld by the
+* earnings test, and recalculated at FRA to credit the months withheld.
+*
 * Ages are whole months. Benefits are in today's dollars, so cost of living
 * adjustments are already accounted for.
 **************************************************************************/
@@ -32,6 +35,11 @@ const MAX_SURVIVOR_REDUCTION: f64 = 0.285;
 // if the deceased claimed early, the survivor receives at least this
 // fraction of the deceased's PIA (the "widow(er)'s limit")
 const SURVIVOR_MINIMUM_OF_PIA: f64 = 0.825;
+// the earnings test: wages above these amounts withhold benefits before FRA.
+// 2026 values. They rise with average wages, so they're treated as constant
+// in today's dollars.
+const ANNUAL_EXEMPT_AMOUNT: f64 = 24_480.0;
+const FRA_YEAR_EXEMPT_AMOUNT: f64 = 65_160.0;
 
 // a retiree, as far as social security is concerned
 #[derive(Debug, Clone)]
@@ -44,6 +52,9 @@ pub struct Person {
     pub claiming_age: u32,
     // first day the retiree is no longer alive
     pub death_date: NaiveDate,
+    // wages before retiring, for the earnings test
+    pub annual_earnings: f64,
+    pub retirement_date: NaiveDate,
 }
 
 // SSA treats people born on January 1 as if born the year before
@@ -146,19 +157,65 @@ fn survivor_benefit_factor(date_of_birth: &NaiveDate, age: u32) -> f64 {
     1.0 - MAX_SURVIVOR_REDUCTION * (fra - age) as f64 / (fra - EARLIEST_SURVIVOR_AGE) as f64
 }
 
-// the benefits for one retiree, worked out in advance: the dates and the
-// life expectancies are known, so they don't change during a simulation
+// the benefits for one retiree, worked out in advance: the dates, earnings,
+// and life expectancies are known, so they don't change during a simulation
 #[derive(Debug, Clone)]
 struct RetireeBenefits {
     death_date: NaiveDate,
+    fra_date: NaiveDate,
+    // own benefit, and from FRA, the amount recalculated for the months
+    // withheld by the earnings test
     own_start: NaiveDate,
     own: f64,
-    // added to the own benefit while the spouse is alive
+    own_from_fra: f64,
+    // added to the own benefit while the spouse is alive, also recalculated
+    // at FRA
     spousal_start: NaiveDate,
     spousal: f64,
+    spousal_from_fra: f64,
     // instead of the own benefit, if larger, after the spouse dies
     survivor_start: NaiveDate,
     survivor: f64,
+    // fraction of benefits withheld each month by this retiree's earnings
+    withholding: Withholding,
+}
+
+// fraction (0 to 1) of benefits withheld each month by the earnings test,
+// from first_month on. Months are counted from year 0 (see month_index).
+#[derive(Debug, Clone, Default)]
+struct Withholding {
+    first_month: i32,
+    fractions: Vec<f64>,
+}
+
+impl Withholding {
+    fn get(&self, month: i32) -> f64 {
+        usize::try_from(month - self.first_month)
+            .ok()
+            .and_then(|i| self.fractions.get(i))
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    fn is_full(&self, month: i32) -> bool {
+        self.get(month) >= 1.0 - 1e-9
+    }
+
+    // months in [from, to) when benefits were completely withheld
+    fn full_months(&self, from: NaiveDate, to: NaiveDate) -> u32 {
+        (month_index(&from)..month_index(&to))
+            .filter(|&m| self.is_full(m))
+            .count() as u32
+    }
+}
+
+fn month_index(date: &NaiveDate) -> i32 {
+    date.year() * 12 + date.month0() as i32
+}
+
+fn first_of_month(month: i32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(month.div_euclid(12), month.rem_euclid(12) as u32 + 1, 1)
+        .unwrap_or(NaiveDate::MAX)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -170,27 +227,73 @@ impl HouseholdBenefits {
     // one person, or a couple. With more than two, nobody gets spousal or
     // survivor benefits.
     pub fn new(people: &[Person]) -> Self {
-        let retirees = people
+        let mut retirees: Vec<RetireeBenefits> = people
             .iter()
             .enumerate()
-            .map(|(i, person)| Self::benefits_for(person, spouse_of(people, i)))
+            .map(|(i, person)| Self::benefits_before_earnings_test(person, spouse_of(people, i)))
             .collect();
+
+        // the earnings test is figured from the benefits before withholding
+        let withholdings: Vec<Withholding> = (0..people.len())
+            .map(|i| earnings_test(&people[i], i, &retirees))
+            .collect();
+        for (retiree, withholding) in retirees.iter_mut().zip(withholdings) {
+            retiree.withholding = withholding;
+        }
+
+        // at FRA, benefits are recalculated as if claimed later by the number
+        // of months they were withheld
+        let credited_months: Vec<u32> = retirees
+            .iter()
+            .map(|r| r.withholding.full_months(r.own_start, r.fra_date))
+            .collect();
+        for (i, person) in people.iter().enumerate() {
+            let dob = &person.date_of_birth;
+            let claiming_age = person.claiming_age * 12 + credited_months[i];
+            retirees[i].own_from_fra =
+                person.pia * retirement_benefit_factor(dob, claiming_age.min(LATEST_CREDIT_AGE));
+
+            if let Some(spouse) = spouse_of(people, i) {
+                let j = 1 - i;
+                let r = &retirees[i];
+                if r.spousal > 0.0 {
+                    let (start, fra) = (r.spousal_start, r.fra_date);
+                    let withheld = (month_index(&start)..month_index(&fra))
+                        .filter(|&m| r.withholding.is_full(m) || retirees[j].withholding.is_full(m))
+                        .count() as u32;
+                    let age = age_in_months(dob, &start) + withheld;
+                    let excess = spouse.pia / 2.0 - person.pia;
+                    retirees[i].spousal_from_fra = excess * spousal_benefit_factor(dob, age);
+                }
+
+                // the survivor benefit is figured from the deceased's
+                // recalculated benefit
+                let factor =
+                    survivor_benefit_factor(dob, age_in_months(dob, &retirees[i].survivor_start));
+                retirees[i].survivor = survivor_benefit(spouse, credited_months[j], factor);
+            }
+        }
+
         HouseholdBenefits { retirees }
     }
 
-    fn benefits_for(person: &Person, spouse: Option<&Person>) -> RetireeBenefits {
+    fn benefits_before_earnings_test(person: &Person, spouse: Option<&Person>) -> RetireeBenefits {
         let dob = &person.date_of_birth;
         let claiming_age = person.claiming_age * 12;
         let own_start = add_months(dob, claiming_age);
         let own = person.pia * retirement_benefit_factor(dob, claiming_age);
         let mut benefits = RetireeBenefits {
             death_date: person.death_date,
+            fra_date: add_months(dob, full_retirement_age(dob)),
             own_start,
             own,
+            own_from_fra: own,
             spousal_start: NaiveDate::MAX,
             spousal: 0.0,
+            spousal_from_fra: 0.0,
             survivor_start: NaiveDate::MAX,
             survivor: 0.0,
+            withholding: Withholding::default(),
         };
         let Some(spouse) = spouse else {
             return benefits;
@@ -205,6 +308,7 @@ impl HouseholdBenefits {
             let start = own_start.max(spouse_claims);
             benefits.spousal_start = start;
             benefits.spousal = excess * spousal_benefit_factor(dob, age_in_months(dob, &start));
+            benefits.spousal_from_fra = benefits.spousal;
         }
 
         // survivor: starts when the spouse dies, but not before the earlier
@@ -214,35 +318,132 @@ impl HouseholdBenefits {
         let start = spouse.death_date.max(own_start.min(survivor_fra_date));
         let factor = survivor_benefit_factor(dob, age_in_months(dob, &start));
         benefits.survivor_start = start;
-        benefits.survivor = survivor_benefit(spouse, factor);
+        benefits.survivor = survivor_benefit(spouse, 0, factor);
         benefits
     }
 
     // total monthly benefits for the household for the month starting on
     // date. Only retirees alive on that date receive benefits.
     pub fn monthly_total(&self, date: &NaiveDate) -> f64 {
+        let month = month_index(date);
         let mut total = 0.0;
         for (i, retiree) in self.retirees.iter().enumerate() {
             if *date >= retiree.death_date {
                 continue;
             }
-            let mut benefit = if *date >= retiree.own_start {
-                retiree.own
-            } else {
+            let after_fra = *date >= retiree.fra_date;
+            let own = if *date < retiree.own_start {
                 0.0
+            } else if after_fra {
+                retiree.own_from_fra
+            } else {
+                retiree.own
             };
-            if let Some(spouse) = spouse_of(&self.retirees, i) {
-                if *date < spouse.death_date {
-                    if *date >= retiree.spousal_start {
-                        benefit += retiree.spousal;
-                    }
-                } else if *date >= retiree.survivor_start {
-                    benefit = benefit.max(retiree.survivor);
+            let withheld = retiree.withholding.get(month);
+
+            let benefit = match spouse_of(&self.retirees, i) {
+                Some(spouse) if *date < spouse.death_date => {
+                    let spousal = if *date < retiree.spousal_start {
+                        0.0
+                    } else if after_fra {
+                        retiree.spousal_from_fra
+                    } else {
+                        retiree.spousal
+                    };
+                    // the spousal benefit is also withheld by the spouse's
+                    // earnings, since it's paid on their record
+                    let spouse_withheld = spouse.withholding.get(month);
+                    own * (1.0 - withheld) + spousal * (1.0 - withheld) * (1.0 - spouse_withheld)
                 }
-            }
+                Some(_) if *date >= retiree.survivor_start => {
+                    own.max(retiree.survivor) * (1.0 - withheld)
+                }
+                _ => own * (1.0 - withheld),
+            };
             total += benefit;
         }
         total
+    }
+}
+
+// benefits before withholding, in the given month, that retiree i's
+// earnings can withhold: their own benefits, and the spousal benefit paid to
+// their spouse on their record
+fn benefits_subject_to_test(retirees: &[RetireeBenefits], i: usize, month: i32) -> f64 {
+    let date = first_of_month(month);
+    let entitled = |start: NaiveDate, amount: f64| {
+        if month >= month_index(&start) {
+            amount
+        } else {
+            0.0
+        }
+    };
+    let retiree = &retirees[i];
+    if date >= retiree.death_date {
+        return 0.0;
+    }
+    let own = entitled(retiree.own_start, retiree.own);
+    match spouse_of(retirees, i) {
+        Some(spouse) if date < spouse.death_date => {
+            own + entitled(retiree.spousal_start, retiree.spousal)
+                + entitled(spouse.spousal_start, spouse.spousal)
+        }
+        Some(_) => own.max(entitled(retiree.survivor_start, retiree.survivor)),
+        None => own,
+    }
+}
+
+// the retirement earnings test, for a retiree who collects benefits before
+// FRA while still working. For each year before the year they reach FRA,
+// $1 is withheld for every $2 of wages above the annual exempt amount. In
+// the year they reach FRA, $1 for every $3 above a higher amount, counting
+// only wages before the FRA month. Benefits are withheld starting with the
+// first month of the year. Months after retiring are never withheld (in the
+// first year of retirement, a month without work is paid whatever the year's
+// wages were).
+fn earnings_test(person: &Person, i: usize, retirees: &[RetireeBenefits]) -> Withholding {
+    let retiree = &retirees[i];
+    let first_benefit = retiree.own_start.min(retiree.survivor_start);
+    let fra_month = month_index(&retiree.fra_date);
+    if person.annual_earnings <= 0.0 || first_benefit >= retiree.fra_date {
+        return Withholding::default();
+    }
+
+    let first_month = month_index(&first_benefit).div_euclid(12) * 12;
+    let mut fractions = vec![0.0; (fra_month - first_month).max(0) as usize];
+    let works = |month: i32| {
+        let date = first_of_month(month);
+        date < person.retirement_date && date < retiree.death_date
+    };
+
+    for year_start in (first_month..fra_month).step_by(12) {
+        let months = year_start..(year_start + 12).min(fra_month);
+        let wages =
+            months.clone().filter(|&m| works(m)).count() as f64 * person.annual_earnings / 12.0;
+        let fra_year = year_start + 12 > fra_month;
+        let mut to_withhold = if fra_year {
+            (wages - FRA_YEAR_EXEMPT_AMOUNT).max(0.0) / 3.0
+        } else {
+            (wages - ANNUAL_EXEMPT_AMOUNT).max(0.0) / 2.0
+        };
+
+        for month in months {
+            if to_withhold <= 0.0 {
+                break;
+            }
+            let benefits = benefits_subject_to_test(retirees, i, month);
+            if !works(month) || benefits <= 0.0 {
+                continue;
+            }
+            let withheld = to_withhold.min(benefits);
+            fractions[(month - first_month) as usize] = withheld / benefits;
+            to_withhold -= withheld;
+        }
+    }
+
+    Withholding {
+        first_month,
+        fractions,
     }
 }
 
@@ -254,13 +455,14 @@ fn spouse_of<T>(people: &[T], i: usize) -> Option<&T> {
     }
 }
 
-// the survivor benefit from the deceased, given the survivor's reduction
-// factor for starting early
-fn survivor_benefit(deceased: &Person, survivor_factor: f64) -> f64 {
+// the survivor benefit from the deceased, given the months the deceased's
+// benefits were withheld by the earnings test (which count as if they had
+// claimed later) and the survivor's reduction factor for starting early
+fn survivor_benefit(deceased: &Person, withheld_months: u32, survivor_factor: f64) -> f64 {
     let dob = &deceased.date_of_birth;
     let fra = full_retirement_age(dob);
-    let claiming_age = deceased.claiming_age * 12;
-    let claimed = add_months(dob, claiming_age) < deceased.death_date;
+    let claimed = add_months(dob, deceased.claiming_age * 12) < deceased.death_date;
+    let claiming_age = deceased.claiming_age * 12 + withheld_months;
 
     if claimed && claiming_age < fra {
         // the deceased claimed early: the survivor benefit is figured from
@@ -376,6 +578,8 @@ mod tests {
             pia,
             claiming_age,
             death_date: date(2100, 1, 1),
+            annual_earnings: 0.0,
+            retirement_date: date(1962, 6, 15),
         }
     }
 
@@ -523,5 +727,94 @@ mod tests {
         let worker = dies_at(person(1000.0, 67), 70);
         let h = household(&[worker, person(3000.0, 67)]);
         assert_close(h.monthly_total(&at_age(70)), 3000.0);
+    }
+
+    // person born 1962-06-15 (FRA 67, in June 2029) who works until the
+    // given age at the given salary
+    fn working(mut person: Person, annual_earnings: f64, retirement_age: u32) -> Person {
+        person.annual_earnings = annual_earnings;
+        person.retirement_date = at_age(retirement_age);
+        person
+    }
+
+    #[test]
+    fn test_earnings_test_withholds_part_of_each_year() {
+        // claims at 62 (June 2024, $2100) while earning $60,000 until 65
+        // (June 2027). Each full year withholds (60,000 - 24,480) / 2 =
+        // $17,760, from January on.
+        let h = household(&[working(person(3000.0, 62), 60000.0, 65)]);
+        // 2024: only June to December are benefit months, all withheld
+        assert_eq!(h.monthly_total(&date(2024, 12, 15)), 0.0);
+        // 2025: 8 months withheld, and $960 of September
+        assert_eq!(h.monthly_total(&date(2025, 8, 15)), 0.0);
+        assert_close(h.monthly_total(&date(2025, 9, 15)), 2100.0 - 960.0);
+        assert_close(h.monthly_total(&date(2025, 10, 15)), 2100.0);
+        // 2027: wages of $30,000 (January to June) withhold $2,760
+        assert_eq!(h.monthly_total(&date(2027, 1, 15)), 0.0);
+        assert_close(h.monthly_total(&date(2027, 2, 15)), 2100.0 - 660.0);
+        assert_close(h.monthly_total(&date(2027, 7, 15)), 2100.0);
+        assert_close(h.monthly_total(&date(2029, 5, 15)), 2100.0);
+        // at FRA, recalculated for the 7 + 8 + 8 + 1 = 24 months withheld,
+        // as if claimed at 64
+        assert_close(h.monthly_total(&date(2029, 6, 15)), 2400.0);
+    }
+
+    #[test]
+    fn test_earnings_test_high_salary_same_as_claiming_at_retirement() {
+        // every month until retiring at 65 is withheld: June 2024 through
+        // June 2027, 37 months
+        let h = household(&[working(person(3000.0, 62), 200000.0, 65)]);
+        assert_eq!(h.monthly_total(&date(2027, 6, 15)), 0.0);
+        assert_close(h.monthly_total(&date(2027, 7, 15)), 2100.0);
+        // as if claimed at 65 and 1 month: 23 months early
+        let factor = 1.0 - 23.0 * 5.0 / 900.0;
+        assert_close(h.monthly_total(&date(2029, 6, 15)), 3000.0 * factor);
+    }
+
+    #[test]
+    fn test_earnings_test_in_fra_year() {
+        // claims at 66 ($2800) and works past FRA at $180,000. 2028 is all
+        // withheld. In 2029, only January to May wages count: (75,000 -
+        // 65,160) / 3 = $3,280.
+        let h = household(&[working(person(3000.0, 66), 180000.0, 68)]);
+        assert_eq!(h.monthly_total(&date(2028, 12, 15)), 0.0);
+        assert_eq!(h.monthly_total(&date(2029, 1, 15)), 0.0);
+        assert_close(h.monthly_total(&date(2029, 2, 15)), 2800.0 - 480.0);
+        assert_close(h.monthly_total(&date(2029, 3, 15)), 2800.0);
+        // no test from FRA on, even while still working. Recalculated for
+        // 8 months withheld: as if claimed at 66 and 8 months.
+        let factor = 1.0 - 4.0 * 5.0 / 900.0;
+        assert_close(h.monthly_total(&date(2029, 6, 15)), 3000.0 * factor);
+    }
+
+    #[test]
+    fn test_no_earnings_test_after_retiring() {
+        // retired at 62 before claiming: nothing withheld, even though the
+        // year's wages are over the limit (months without work are paid)
+        let h = household(&[working(person(3000.0, 62), 200000.0, 62)]);
+        assert_close(h.monthly_total(&date(2024, 7, 15)), 2100.0);
+    }
+
+    #[test]
+    fn test_earnings_test_withholds_spousal_benefit() {
+        // the worker's wages also withhold the spousal benefit paid on
+        // their record, and it's recalculated at FRA too
+        let worker = working(person(3000.0, 62), 200000.0, 65);
+        let h = household(&[worker, person(0.0, 62)]);
+        assert_eq!(h.monthly_total(&date(2027, 6, 15)), 0.0);
+        assert_close(h.monthly_total(&date(2027, 7, 15)), 2100.0 + 975.0);
+        let own = 3000.0 * (1.0 - 23.0 * 5.0 / 900.0);
+        let spousal = 1500.0 * (1.0 - 23.0 * 25.0 / 3600.0);
+        assert_close(h.monthly_total(&date(2029, 6, 15)), own + spousal);
+    }
+
+    #[test]
+    fn test_survivor_benefit_after_earnings_test() {
+        // the deceased's benefit was recalculated as if claimed at 65 and 1
+        // month (87.2% of PIA), above the 82.5% minimum
+        let worker = dies_at(working(person(3000.0, 62), 200000.0, 65), 66);
+        let h = household(&[worker, person(0.0, 67)]);
+        let factor = 1.0 - 23.0 * 5.0 / 900.0;
+        assert_close(h.monthly_total(&at_age(67)), 3000.0 * factor);
     }
 }

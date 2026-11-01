@@ -121,14 +121,24 @@ The benefits are then calculated from the full amounts:
 - **Spousal benefit** while both retirees are alive: up to half of the other
   retiree's full amount, minus your own full amount. It's reduced if started
   before your full retirement age (down to 32.5% of the other's full amount at
-  62), can't start until
-  both of you have claimed, and doesn't grow after full retirement age.
+  62), can't start until both of you have claimed, and doesn't grow after full
+  retirement age.
 - **Survivor benefit** after the other retiree dies: what they were receiving,
   including delayed credits. If they claimed early, at least 82.5% of their
   full amount. If they died before claiming, their full amount plus any
-  delayed credits earned by then. It's reduced if started before your survivor full retirement age
-  (down to 71.5% at 60). The survivor receives the larger of their own benefit
-  and the survivor benefit.
+  delayed credits earned by then. It's reduced if started before your survivor
+  full retirement age (down to 71.5% at 60). The survivor receives the larger
+  of their own benefit and the survivor benefit.
+- **Earnings test**: if you claim before full retirement age while still
+  working, $1 of benefits is withheld for every $2 of wages above $24,480 a
+  year. In the year you reach full retirement age, $1 for every $3 above
+  $65,160, counting only wages before that month. Benefits are withheld from
+  January on, and months after you retire are always paid. Your wages also
+  withhold the spousal benefit paid on your record. At full retirement age,
+  your benefits are recalculated as if you had claimed later by the number of
+  months withheld, so withholding mostly delays benefits rather than losing
+  them. If your salary is well above the limit, claiming before you retire
+  works out the same as claiming when you retire.
 
 ### Portfolio
 
@@ -347,10 +357,13 @@ amount using the SSA rules for full retirement age, early reductions, delayed
 credits, spousal benefits, and survivor benefits. Claiming ages are whole
 years. A survivor is assumed to start the survivor benefit when the spouse
 dies, but not before the earlier of their own `social_security_age` and their
-survivor full retirement age. The full amount reported by the SSA assumes you keep
-working until you claim. The earnings test (benefits withheld while working
-before full retirement age), the government pension offset, the lump-sum death
-payment, and benefits for children are not modelled.
+survivor full retirement age. The full amount reported by the SSA assumes you
+keep working until you claim. The earnings test limits are the 2026 amounts,
+and are kept the same in today's dollars. The earnings test withholds exactly the
+amount owed, ending with part of a month; SSA withholds whole monthly checks
+and refunds the difference the next year. The government
+pension offset, the lump-sum death payment, and benefits for children are not
+modelled.
 
 **Income tax.** All income other than social security (including what is
 withdrawn from `balance`) is taxed at the normal income tax rate. Roth

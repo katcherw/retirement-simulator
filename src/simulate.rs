@@ -216,6 +216,8 @@ impl<'a> Simulation<'a> {
                 pia: retiree.social_security_amount_full,
                 claiming_age: retiree.social_security_age,
                 death_date: info.death_date,
+                annual_earnings: retiree.salary_annual,
+                retirement_date: info.retirement_date,
             })
             .collect();
 
@@ -765,6 +767,27 @@ mod tests {
             .find(|s| s.date >= results.retirees[1].social_security_date)
             .unwrap();
         assert_close(survivor.income, 2000.0 * (1.0 - 0.285 * 60.0 / 84.0));
+    }
+
+    #[test]
+    fn test_earnings_test_withholds_social_security() {
+        // claims at 62 (January 2028) while earning $120,000 until 64: all
+        // withheld until retiring, then 70% of PIA, then from FRA at 67
+        // recalculated for the 24 months withheld (80%)
+        let mut retiree = test_retiree(64, 120000.0);
+        retiree.life_expectancy = 70;
+        retiree.social_security_age = 62;
+        retiree.social_security_amount_full = 2000.0;
+        let input = test_input(vec![retiree], 0.0);
+        let results = run_simulation(&input).unwrap();
+        let income_on = |year, month| {
+            let date = NaiveDate::from_ymd_opt(year, month, 15).unwrap();
+            let snapshot = results.monthly_snapshot.iter().find(|s| s.date == date);
+            snapshot.unwrap().income
+        };
+        assert_eq!(income_on(2029, 6), 0.0);
+        assert_close(income_on(2030, 6), 1400.0);
+        assert_close(income_on(2033, 6), 1600.0);
     }
 
     #[test]
