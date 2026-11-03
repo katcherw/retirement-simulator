@@ -118,8 +118,12 @@ impl Input {
         }
 
         let portfolio = &self.portfolio;
-        check_amount(portfolio.pre_tax_balance, "portfolio balance")?;
+        check_amount(portfolio.pre_tax_balance, "portfolio pre_tax_balance")?;
         check_amount(portfolio.roth_balance, "portfolio roth_balance")?;
+        check_amount(portfolio.taxable_balance, "portfolio taxable_balance")?;
+        if let Some(basis) = portfolio.taxable_cost_basis {
+            check_amount(basis, "portfolio taxable_cost_basis")?;
+        }
         validate_allocation(
             &portfolio.pre_retirement_allocation,
             "pre_retirement_allocation",
@@ -148,6 +152,7 @@ pub const MAX_AMOUNT: f64 = 1.0e12;
 pub const MIN_EXPECTED_RETURN: f64 = -50.0;
 pub const MAX_EXPECTED_RETURN: f64 = 50.0;
 pub const MAX_STANDARD_DEVIATION: f64 = 50.0;
+pub const MAX_YIELD: f64 = 20.0;
 
 fn validate_retiree(retiree: &Retiree, start_date: &NaiveDate) -> Result<(), String> {
     let name = &retiree.name;
@@ -256,6 +261,20 @@ fn validate_forecasts(forecasts: &Forecasts) -> Result<(), String> {
         }
         check_range(value, 0.0, MAX_STANDARD_DEVIATION, name)?;
     }
+    let yields = [
+        (
+            forecasts.us_equity_dividend_yield,
+            "us_equity_dividend_yield",
+        ),
+        (
+            forecasts.international_equity_dividend_yield,
+            "international_equity_dividend_yield",
+        ),
+        (forecasts.bonds_interest_yield, "bonds_interest_yield"),
+    ];
+    for (value, name) in yields {
+        check_range(value, 0.0, MAX_YIELD, name)?;
+    }
     // checks the correlations
     monte_carlo::ReturnsSampler::new(forecasts)?;
     Ok(())
@@ -271,6 +290,14 @@ fn explain_parse_error(text: &str, error: serde_yaml_ng::Error) -> String {
             "tax_rates is no longer part of the input file: the {TAX_YEAR} federal \
              tax rates are built in. Remove the tax_rates block."
         ),
+        // older input files had brokerage accounts in the pre-tax balance
+        Ok(value) if !value["portfolio"]["balance"].is_null() => {
+            "the portfolio balance has been split: enter 401(k), 403(b), and traditional \
+             IRA accounts as pre_tax_balance, and brokerage and savings accounts as \
+             taxable_balance (with taxable_cost_basis, what you paid for them). Both \
+             are needed for taxes and required minimum distributions."
+                .to_string()
+        }
         // older input files also had social security amounts at 62 and 70
         Ok(value) if has_old_social_security_amounts(&value) => {
             "social_security_amount_early and social_security_amount_delayed are no \
@@ -397,6 +424,8 @@ mod tests {
             "_expected_returns:",
             "_standard_deviation:",
             "_correlation:",
+            "_yield:",
+            "income paid each year",
         ];
         let sample = sample();
         let lines: Vec<&str> = sample
@@ -444,8 +473,8 @@ mod tests {
 
     #[test]
     fn test_parse_accepts_integer_amounts() {
-        let input = parse_modified_sample("balance: 900000.0", "balance: 900000").unwrap();
-        assert_eq!(input.portfolio.pre_tax_balance, 900000.0);
+        let input = parse_modified_sample("balance: 700000.0", "balance: 700000").unwrap();
+        assert_eq!(input.portfolio.pre_tax_balance, 700000.0);
     }
 
     #[test]
@@ -712,8 +741,11 @@ mod tests {
     fn test_validation_limits_amounts() {
         let err = parse_modified_sample("monthly: 9000.0", "monthly: -1.0").unwrap_err();
         assert!(err.contains("expenses monthly can't be negative"), "{err}");
-        let err = parse_modified_sample("balance: 900000.0", "balance: 1.0e300").unwrap_err();
-        assert!(err.contains("portfolio balance must be between"), "{err}");
+        let err = parse_modified_sample("balance: 700000.0", "balance: 1.0e300").unwrap_err();
+        assert!(
+            err.contains("portfolio pre_tax_balance must be between"),
+            "{err}"
+        );
         let err = parse_modified_sample(
             "pension_monthly_income: 1000.0",
             "pension_monthly_income: -1000.0",
@@ -726,7 +758,7 @@ mod tests {
     fn test_validation_rejects_nan_and_infinity() {
         // YAML can spell these, and JSON from code could contain them
         for (from, to) in [
-            ("balance: 900000.0", "balance: .nan"),
+            ("balance: 700000.0", "balance: .nan"),
             ("monthly: 9000.0", "monthly: .inf"),
             ("wage_annual_salary: 75000.0", "wage_annual_salary: .nan"),
             ("survivor_percent: 100.0", "survivor_percent: .nan"),
@@ -784,6 +816,58 @@ mod tests {
         );
         let err = Input::from_yaml(&old, start_date()).unwrap_err();
         assert!(err.contains("are no longer used"), "{err}");
+    }
+
+    #[test]
+    fn test_parse_taxable_account() {
+        let input = parse_sample();
+        assert_eq!(input.portfolio.taxable_balance, 200000.0);
+        assert_eq!(input.portfolio.taxable_cost_basis, Some(140000.0));
+        // and saved again
+        let yaml = input.to_yaml().unwrap();
+        assert!(yaml.contains("taxable_cost_basis: 140000.0"), "{yaml}");
+
+        // both optional
+        let sample = sample();
+        let lines: Vec<&str> = sample
+            .lines()
+            .filter(|line| !line.contains("taxable_") && !line.contains("# the gain is taxed"))
+            .collect();
+        let input = Input::from_yaml(&lines.join("\n"), start_date()).unwrap();
+        assert_eq!(input.portfolio.taxable_balance, 0.0);
+        assert_eq!(input.portfolio.taxable_cost_basis, None);
+        assert!(!input.to_yaml().unwrap().contains("taxable_cost_basis"));
+
+        let err = parse_modified_sample("taxable_cost_basis: 140000.0", "taxable_cost_basis: -1.0")
+            .unwrap_err();
+        assert!(
+            err.contains("taxable_cost_basis can't be negative"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn test_old_portfolio_balance() {
+        let err =
+            parse_modified_sample("pre_tax_balance: 700000.0", "balance: 700000.0").unwrap_err();
+        assert!(err.contains("balance has been split"), "{err}");
+    }
+
+    #[test]
+    fn test_validation_limits_yields() {
+        let err = validate_modified(|input| {
+            input.portfolio.forecasts.bonds_interest_yield = 25.0;
+        })
+        .unwrap_err();
+        assert!(
+            err.contains("bonds_interest_yield must be between"),
+            "{err}"
+        );
+        let err = validate_modified(|input| {
+            input.portfolio.forecasts.us_equity_dividend_yield = -1.0;
+        })
+        .unwrap_err();
+        assert!(err.contains("us_equity_dividend_yield"), "{err}");
     }
 
     #[test]

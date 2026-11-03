@@ -40,14 +40,13 @@ retirees:
        social_security_amount_full: 3870.0      # see above
 
 portfolio:
-    # balances as of today. balance is everything except Roth accounts:
-    # 401(k), 403(b), traditional IRA, and brokerage accounts. Withdrawals
-    # are taxed as ordinary income (which overstates the tax on brokerage
-    # accounts). roth_balance is Roth IRA, Roth 401(k), and HSA accounts;
-    # withdrawals aren't taxed. roth_balance is optional (default 0.0).
-    # Withdrawals come from balance first, then from roth_balance.
-    balance: 900000.0
-    roth_balance: 300000.0
+    # balances as of today. Withdrawals come from the taxable account first,
+    # then pre-tax, then Roth.
+    pre_tax_balance: 700000.0      # 401(k), 403(b), traditional IRA: taxed as income
+    roth_balance: 300000.0         # Roth IRA, Roth 401(k), HSA: not taxed (optional)
+    taxable_balance: 200000.0      # brokerage, savings, CDs (optional)
+    taxable_cost_basis: 140000.0   # what you paid for the taxable investments; only
+                                   # the gain is taxed (optional, default: no gain)
 
     # asset allocation before retirement (should add up to 100.0)
     pre_retirement_allocation:
@@ -80,6 +79,14 @@ portfolio:
         us_international_correlation: 0.8
         us_bonds_correlation: 0.3
         international_bonds_correlation: 0.3
+
+        # income paid each year as a percentage of the balance (the nominal
+        # yield that funds quote, not after inflation). In the
+        # taxable account, dividends are taxed every year as qualified
+        # dividends, and bond interest as ordinary income.
+        us_equity_dividend_yield: 1.3
+        international_equity_dividend_yield: 3.0
+        bonds_interest_yield: 4.0
 
 expenses:
     monthly: 9000.0     # estimated monthly expenses during retirment in today's dollars

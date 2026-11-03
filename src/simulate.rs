@@ -4,7 +4,7 @@
 * Performs the simulation of a retirement scenario
 **************************************************************************/
 
-use crate::portfolio::Portfolio;
+use crate::portfolio::{Accounts, WithdrawalIncome};
 use crate::social_security::{self, HouseholdBenefits};
 use crate::utils::*;
 use crate::{Input, TaxLevel};
@@ -87,6 +87,7 @@ fn taxable_social_security(benefits: f64, other_income: f64, base: f64, adjusted
 // deduction and social security thresholds adjusted for the household
 struct TaxRules<'a> {
     tax_levels: &'a [TaxLevel],
+    capital_gains_levels: &'a [TaxLevel],
     standard_deduction: f64,
     social_security_base: f64,
     social_security_adjusted_base: f64,
@@ -94,10 +95,16 @@ struct TaxRules<'a> {
 
 impl TaxRules<'_> {
     // returns the monthly tax and the marginal tax bracket (percentage) for
-    // monthly social security benefits and other taxable income
-    fn taxes(&self, social_security: f64, other_income: f64) -> (f64, f64) {
+    // monthly social security benefits, ordinary income, and long-term
+    // capital gains and qualified dividends. The standard deduction comes
+    // off ordinary income first, and the capital gains are taxed at their
+    // own rates, stacked on top of ordinary income. They also count toward
+    // the income that makes social security taxable.
+    fn taxes(&self, social_security: f64, ordinary_income: f64, capital_gains: f64) -> (f64, f64) {
         let social_security = social_security * 12.0;
-        let other_income = other_income * 12.0;
+        let ordinary_income = ordinary_income * 12.0;
+        let capital_gains = capital_gains * 12.0;
+        let other_income = ordinary_income + capital_gains;
         let taxable_income = other_income
             + taxable_social_security(
                 social_security,
@@ -106,8 +113,12 @@ impl TaxRules<'_> {
                 self.social_security_adjusted_base,
             );
         let taxable_income = (taxable_income - self.standard_deduction).max(0.0);
-        let (annual_tax, marginal_rate) = bracket_taxes(taxable_income, self.tax_levels);
-        (annual_tax / 12.0, marginal_rate)
+        let taxable_gains = capital_gains.min(taxable_income);
+        let taxable_ordinary = taxable_income - taxable_gains;
+        let (ordinary_tax, marginal_rate) = bracket_taxes(taxable_ordinary, self.tax_levels);
+        let gains_tax = bracket_taxes(taxable_income, self.capital_gains_levels).0
+            - bracket_taxes(taxable_ordinary, self.capital_gains_levels).0;
+        ((ordinary_tax + gains_tax) / 12.0, marginal_rate)
     }
 
     // taxes are paid first from any income left over after expenses (the
@@ -118,20 +129,24 @@ impl TaxRules<'_> {
     // pays the taxes not covered by the surplus.
     //
     // withdrawals (for expenses) and the extra withdrawal come from the
-    // pre-tax balance first, and only that part is taxed. The rest comes
-    // from Roth, tax free. Returns the monthly tax (including the tax on the
-    // extra withdrawal) and the marginal bracket.
+    // taxable account first (only the gain is taxed), then pre-tax (taxed as
+    // ordinary income), then Roth (tax free). Returns the monthly tax
+    // (including the tax on the extra withdrawal) and the marginal bracket.
     fn taxes_with_withdrawals(
         &self,
         social_security: f64,
-        other_income: f64,
+        income: WithdrawalIncome,
         withdrawals: f64,
         surplus: f64,
-        pre_tax_balance: f64,
+        accounts: &Accounts,
     ) -> (f64, f64) {
         let taxes = |extra: f64| {
-            let taxable_withdrawals = f64::min(withdrawals + extra, pre_tax_balance);
-            self.taxes(social_security, other_income + taxable_withdrawals)
+            let from_accounts = accounts.withdrawal_income(withdrawals + extra);
+            self.taxes(
+                social_security,
+                income.ordinary + from_accounts.ordinary,
+                income.capital_gains + from_accounts.capital_gains,
+            )
         };
         let shortfall = |extra: f64| taxes(extra).0 - surplus;
         if shortfall(0.0) <= 0.0 {
@@ -165,7 +180,7 @@ pub struct Simulation<'a> {
 
     input_: &'a Input,
     current_date_: NaiveDate,
-    portfolio_: Portfolio,
+    accounts_: Accounts,
     social_security_: HouseholdBenefits,
     expenses_: f64,
     sum_of_returns_: f64,
@@ -221,14 +236,13 @@ impl<'a> Simulation<'a> {
             })
             .collect();
 
-        let portfolio = input.portfolio;
         let expenses = input.expenses.monthly;
 
         Ok(Self {
             simulation_results_: simulation_results,
             input_: input,
             current_date_: current_date,
-            portfolio_: portfolio,
+            accounts_: input.portfolio.accounts(),
             social_security_: HouseholdBenefits::new(&people),
             expenses_: expenses,
             sum_of_returns_: 0.0,
@@ -263,7 +277,7 @@ impl<'a> Simulation<'a> {
             if alive[i] && date < infos[i].retirement_date {
                 let contribution =
                     retiree.salary_annual * retiree.retirement_contribution_percent / 100.0 / 12.0;
-                self.portfolio_.deposit(contribution);
+                self.accounts_.contribute(contribution);
                 if household_retired {
                     wages += retiree.salary_annual / 12.0 - contribution;
                 }
@@ -277,6 +291,15 @@ impl<'a> Simulation<'a> {
         // all income other than social security is fully taxable
         let mut income = social_security + wages;
         let mut taxable_income = wages;
+
+        // interest and dividends in the taxable account are reinvested, but
+        // taxed every year
+        let allocation = self.input_.portfolio.allocation(household_retired);
+        let (interest, dividends) = self
+            .accounts_
+            .investment_income(allocation, &self.input_.portfolio.forecasts);
+        self.accounts_.reinvest(interest + dividends);
+        taxable_income += interest;
 
         // pension income, before or after retirement, until the retiree dies
         for (i, retiree) in self.input_.retirees.iter().enumerate() {
@@ -307,8 +330,7 @@ impl<'a> Simulation<'a> {
         let withdrawals = f64::max(expenses - income, 0.0);
 
         // tax on income and withdrawals, using the filing status for the
-        // number of retirees alive. Withdrawals from the pre-tax balance are
-        // taxed as ordinary income; Roth withdrawals aren't taxed.
+        // number of retirees alive
         let num_alive = alive.iter().filter(|&&a| a).count();
         let num_65_or_older = self
             .input_
@@ -321,6 +343,7 @@ impl<'a> Simulation<'a> {
         let scale = self.social_security_threshold_scale_;
         let tax_rules = TaxRules {
             tax_levels: &tax_table.tax_levels,
+            capital_gains_levels: &tax_table.capital_gains_levels,
             standard_deduction: tax_table.standard_deduction
                 + tax_table.additional_deduction_65_or_older * num_65_or_older as f64,
             social_security_base: tax_table.social_security_base * scale,
@@ -329,36 +352,40 @@ impl<'a> Simulation<'a> {
         let surplus = f64::max(income - expenses, 0.0);
         let (taxes, tax_rate) = tax_rules.taxes_with_withdrawals(
             social_security,
-            taxable_income,
+            WithdrawalIncome {
+                ordinary: taxable_income,
+                capital_gains: dividends,
+            },
             withdrawals,
             surplus,
-            self.portfolio_.pre_tax_balance,
+            &self.accounts_,
         );
 
         let net_cash_flow = income - expenses - taxes;
         let mut withdrawal_rate = 0.0;
         if net_cash_flow >= 0.0 {
-            self.portfolio_.deposit(net_cash_flow);
+            self.accounts_.deposit(net_cash_flow);
         } else {
-            if self.portfolio_.balance() > 0.0 {
-                withdrawal_rate = -net_cash_flow * 12.0 / self.portfolio_.balance();
+            if self.accounts_.balance() > 0.0 {
+                withdrawal_rate = -net_cash_flow * 12.0 / self.accounts_.balance();
             }
-            self.portfolio_.withdraw(-net_cash_flow);
+            self.accounts_.withdraw(-net_cash_flow);
         }
 
-        let annualized_return = self.portfolio_.grow(
+        let annualized_return = self.accounts_.grow(
+            allocation,
             us_equity_expected_returns,
             international_equity_expected_returns,
             bonds_expected_returns,
-            self.current_date_ >= self.simulation_results_.retirement_date,
         );
+        self.accounts_.adjust_basis_for_inflation(inflation);
         self.sum_of_returns_ += annualized_return;
         self.simulation_results_.average_return =
             self.sum_of_returns_ / (self.simulation_results_.monthly_snapshot.len() as f64 + 1.0);
 
         let monthly_balance = MonthlySnapshot {
             date: self.current_date_,
-            balance: self.portfolio_.balance(),
+            balance: self.accounts_.balance(),
             expenses,
             income,
             taxes,
@@ -377,7 +404,7 @@ impl<'a> Simulation<'a> {
             .ok_or_else(|| format!("simulation ran past the last date ({date})"))?;
         self.social_security_threshold_scale_ /= (1.0 + inflation / 100.0).powf(1.0 / 12.0);
 
-        Ok(self.portfolio_.balance() == 0.0)
+        Ok(self.accounts_.balance() == 0.0)
     }
 }
 
@@ -430,13 +457,14 @@ mod tests {
     fn annual_taxes(annual_income: f64) -> (f64, f64) {
         let brackets = brackets();
         let rules = married_rules(&brackets);
-        let (monthly_tax, rate) = rules.taxes(0.0, annual_income / 12.0);
+        let (monthly_tax, rate) = rules.taxes(0.0, annual_income / 12.0, 0.0);
         (monthly_tax * 12.0, rate)
     }
 
     fn married_rules(brackets: &[TaxLevel]) -> TaxRules<'_> {
         TaxRules {
             tax_levels: brackets,
+            capital_gains_levels: &[],
             standard_deduction: STANDARD_DEDUCTION,
             social_security_base: 32000.0,
             social_security_adjusted_base: 44000.0,
@@ -524,7 +552,8 @@ mod tests {
         }
     }
 
-    // input with zero returns and no taxes, so balances are easy to predict
+    // input with zero returns and yields and no taxes, so balances are easy
+    // to predict
     fn test_input(retirees: Vec<crate::Retiree>, monthly_expenses: f64) -> Input {
         let all_bonds = crate::portfolio::Allocation {
             us_equities: 0.0,
@@ -533,15 +562,20 @@ mod tests {
         };
         Input {
             retirees,
-            portfolio: Portfolio {
+            portfolio: crate::portfolio::Portfolio {
                 pre_tax_balance: 1_000_000.0,
                 roth_balance: 0.0,
+                taxable_balance: 0.0,
+                taxable_cost_basis: None,
                 pre_retirement_allocation: all_bonds,
                 post_retirement_allocation: all_bonds,
                 forecasts: crate::portfolio::Forecasts {
                     us_equity_expected_returns: 0.0,
                     international_equity_expected_returns: 0.0,
                     bonds_expected_returns: 0.0,
+                    us_equity_dividend_yield: 0.0,
+                    international_equity_dividend_yield: 0.0,
+                    bonds_interest_yield: 0.0,
                     ..Default::default()
                 },
             },
@@ -586,6 +620,10 @@ mod tests {
             social_security_base: 1.0e9,
             social_security_adjusted_base: 1.0e9,
             tax_levels: vec![TaxLevel { income: 0.0, rate }],
+            capital_gains_levels: vec![TaxLevel {
+                income: 0.0,
+                rate: 0.0,
+            }],
         }
     }
 
@@ -790,6 +828,152 @@ mod tests {
         assert_close(income_on(2033, 6), 1600.0);
     }
 
+    // 2026 married filing jointly capital gains rates
+    fn capital_gains_brackets() -> Vec<TaxLevel> {
+        [(0.0, 0.0), (98900.0, 15.0), (613700.0, 20.0)]
+            .iter()
+            .map(|&(income, rate)| TaxLevel { income, rate })
+            .collect()
+    }
+
+    // returns the annual tax for annual ordinary income and capital gains,
+    // with no social security
+    fn annual_taxes_with_gains(ordinary: f64, gains: f64) -> f64 {
+        let brackets = brackets();
+        let gains_brackets = capital_gains_brackets();
+        let rules = TaxRules {
+            capital_gains_levels: &gains_brackets,
+            ..married_rules(&brackets)
+        };
+        rules.taxes(0.0, ordinary / 12.0, gains / 12.0).0 * 12.0
+    }
+
+    #[test]
+    fn test_capital_gains_taxes() {
+        // ordinary income uses up the standard deduction; the 50,000 of
+        // gains is all under the 98,900 top of the 0% bracket
+        assert_close(annual_taxes_with_gains(STANDARD_DEDUCTION, 50000.0), 0.0);
+        // the standard deduction comes off ordinary income first: taxable
+        // income of 27,800 is all gains
+        assert_close(annual_taxes_with_gains(10000.0, 50000.0), 0.0);
+
+        // gains are stacked on top of 67,800 of taxable ordinary income
+        // (2,480 + 12% of 43,000): 31,100 at 0%, then 18,900 at 15%
+        assert_close(
+            annual_taxes_with_gains(100000.0, 50000.0),
+            2480.0 + 5160.0 + 2835.0,
+        );
+
+        // all three capital gains rates
+        assert_close(
+            annual_taxes_with_gains(0.0, 1_000_000.0),
+            514800.0 * 0.15 + 354100.0 * 0.2,
+        );
+    }
+
+    // single retiree, retired, with $100,000 in a taxable account that is
+    // half gain, and $1000/month of expenses. 10% ordinary tax and 15%
+    // capital gains tax, with no deductions.
+    fn taxable_account_input() -> Input {
+        let mut input = test_input(vec![test_retiree(60, 0.0)], 1000.0);
+        input.portfolio.pre_tax_balance = 0.0;
+        input.portfolio.taxable_balance = 100_000.0;
+        input.portfolio.taxable_cost_basis = Some(50_000.0);
+        flat_tax(&mut input, 10.0);
+        input.tax_rates.single.capital_gains_levels = vec![TaxLevel {
+            income: 0.0,
+            rate: 15.0,
+        }];
+        input
+    }
+
+    #[test]
+    fn test_only_gains_are_taxed_on_taxable_withdrawals() {
+        // withdraw w to cover 1000 plus the tax on half of w: w = 1000 +
+        // 0.15 * w / 2
+        let results = run_simulation(&taxable_account_input()).unwrap();
+        let first = &results.monthly_snapshot[0];
+        let withdrawal = 1000.0 / (1.0 - 0.075);
+        assert!(
+            (first.taxes - (withdrawal - 1000.0)).abs() < 0.01,
+            "{}",
+            first.taxes
+        );
+        assert!((first.balance - (100_000.0 - withdrawal)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_taxable_account_is_withdrawn_before_pre_tax() {
+        let mut input = taxable_account_input();
+        input.portfolio.pre_tax_balance = 100_000.0;
+        let results = run_simulation(&input).unwrap();
+        // same as with no pre-tax balance: only capital gains tax
+        let first = &results.monthly_snapshot[0];
+        let withdrawal = 1000.0 / (1.0 - 0.075);
+        assert!((first.taxes - (withdrawal - 1000.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_interest_and_dividends_are_taxed() {
+        // $120,000 at a 2% bond interest yield and 1% dividend yield: $200
+        // of interest a month (10%) and $100 of dividends (15%), with no
+        // expenses. No gain in the account, so withdrawing the tax isn't
+        // taxed.
+        let mut input = taxable_account_input();
+        input.expenses.monthly = 0.0;
+        input.portfolio.taxable_cost_basis = None;
+        input.portfolio.taxable_balance = 120_000.0;
+        input.portfolio.pre_retirement_allocation.bonds = 50.0;
+        input.portfolio.pre_retirement_allocation.us_equities = 50.0;
+        input.portfolio.post_retirement_allocation = input.portfolio.pre_retirement_allocation;
+        input.portfolio.forecasts.bonds_interest_yield = 4.0;
+        input.portfolio.forecasts.us_equity_dividend_yield = 2.0;
+        let results = run_simulation(&input).unwrap();
+        let first = &results.monthly_snapshot[0];
+        assert!((first.taxes - 35.0).abs() < 0.01, "{}", first.taxes);
+        // reinvested, and taxes are paid from the account
+        assert!((first.balance - (120_000.0 - 35.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_surplus_income_goes_to_taxable_account() {
+        // a $3000/month pension, $1000 of expenses, no tax: $2000 a month is
+        // saved in the taxable account, at cost
+        let mut retiree = test_retiree(60, 0.0);
+        retiree.pension_monthly_income = 3000.0;
+        let input = test_input(vec![retiree], 1000.0);
+        let mut simulation = Simulation::new(&input).unwrap();
+        simulation
+            .run_simulation_one_month(0.0, 0.0, 0.0, 0.0)
+            .unwrap();
+        assert_eq!(simulation.accounts_.taxable, 2000.0);
+        assert_eq!(simulation.accounts_.taxable_basis, 2000.0);
+        assert_eq!(simulation.accounts_.pre_tax, 1_000_000.0);
+    }
+
+    #[test]
+    fn test_inflation_makes_basis_taxable_gain() {
+        // no gain to start, but after a month of 12% inflation the basis is
+        // worth less in today's dollars
+        let mut input = taxable_account_input();
+        input.portfolio.taxable_cost_basis = None;
+        let mut simulation = Simulation::new(&input).unwrap();
+        simulation
+            .run_simulation_one_month(0.0, 0.0, 0.0, 12.0)
+            .unwrap();
+        assert_eq!(
+            simulation.simulation_results_.monthly_snapshot[0].taxes,
+            0.0
+        );
+        let basis = simulation.accounts_.taxable_basis;
+        let balance = simulation.accounts_.taxable;
+        assert!((basis - balance / 1.12f64.powf(1.0 / 12.0)).abs() < 0.01);
+        simulation
+            .run_simulation_one_month(0.0, 0.0, 0.0, 12.0)
+            .unwrap();
+        assert!(simulation.simulation_results_.monthly_snapshot[1].taxes > 0.0);
+    }
+
     #[test]
     fn test_household_retires_with_first_retiree() {
         // list the later retiree first to make sure order doesn't matter
@@ -899,7 +1083,7 @@ mod tests {
         // social security is taxable, so taxable income is 55,350 - 32,200
         let brackets = brackets();
         let rules = married_rules(&brackets);
-        let (tax, rate) = rules.taxes(30000.0 / 12.0, 40000.0 / 12.0);
+        let (tax, rate) = rules.taxes(30000.0 / 12.0, 40000.0 / 12.0, 0.0);
         assert_close(tax * 12.0, 2315.0);
         assert_eq!(rate, 10.0);
     }
@@ -914,14 +1098,25 @@ mod tests {
         let social_security = 3000.0;
         let other_income = 4000.0;
         let surplus = 100.0;
-        let (taxes, _) =
-            rules.taxes_with_withdrawals(social_security, other_income, 0.0, surplus, f64::MAX);
+        let (taxes, _) = rules.taxes_with_withdrawals(
+            social_security,
+            WithdrawalIncome {
+                ordinary: other_income,
+                capital_gains: 0.0,
+            },
+            0.0,
+            surplus,
+            &Accounts {
+                pre_tax: f64::MAX,
+                ..Default::default()
+            },
+        );
         let extra = taxes - surplus;
         assert!(extra > 0.0);
-        let (expected, _) = rules.taxes(social_security, other_income + extra);
+        let (expected, _) = rules.taxes(social_security, other_income + extra, 0.0);
         assert!((taxes - expected).abs() < 0.01, "{taxes} vs {expected}");
         // more than the 12% bracket alone would add
-        let (base_taxes, _) = rules.taxes(social_security, other_income);
+        let (base_taxes, _) = rules.taxes(social_security, other_income, 0.0);
         assert!(taxes - base_taxes > (base_taxes - surplus) * 12.0 / 88.0 + 1.0);
     }
 

@@ -32,6 +32,10 @@ pub struct TaxTable {
     pub social_security_adjusted_base: f64,
     // sorted by income, starting at 0
     pub tax_levels: Vec<TaxLevel>,
+    // rates for long-term capital gains and qualified dividends, by taxable
+    // income (including the gains, which are stacked on top of ordinary
+    // income). Sorted by income, starting at 0.
+    pub capital_gains_levels: Vec<TaxLevel>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +66,7 @@ impl TaxRates {
                     (512450.0, 35.0),
                     (768700.0, 37.0),
                 ]),
+                capital_gains_levels: tax_levels(&[(0.0, 0.0), (98900.0, 15.0), (613700.0, 20.0)]),
             },
             single: TaxTable {
                 standard_deduction: 16100.0,
@@ -77,6 +82,7 @@ impl TaxRates {
                     (256225.0, 35.0),
                     (640600.0, 37.0),
                 ]),
+                capital_gains_levels: tax_levels(&[(0.0, 0.0), (49450.0, 15.0), (545500.0, 20.0)]),
             },
         }
     }
@@ -106,11 +112,13 @@ mod tests {
     // the tax calculations depend on these, so check them when the rates
     // are updated
     fn assert_valid(table: &TaxTable) {
+        for levels in [&table.tax_levels, &table.capital_gains_levels] {
+            assert_eq!(levels[0].income, 0.0);
+            assert!(levels
+                .windows(2)
+                .all(|pair| pair[0].income < pair[1].income));
+        }
         let levels = &table.tax_levels;
-        assert_eq!(levels[0].income, 0.0);
-        assert!(levels
-            .windows(2)
-            .all(|pair| pair[0].income < pair[1].income));
         // each extra dollar of income can make up to 85 cents more of social
         // security taxable, so the tax on a withdrawal can be 1.85 times the
         // rate. Rates must stay low enough that this is less than 100%.
