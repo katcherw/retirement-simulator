@@ -5,10 +5,11 @@
 **************************************************************************/
 
 use crate::portfolio::{Accounts, WithdrawalIncome};
+use crate::rmd;
 use crate::social_security::{self, HouseholdBenefits};
 use crate::utils::*;
 use crate::{Input, TaxLevel};
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 
 // stores results of each month of the simulation
 #[derive(Debug)]
@@ -187,6 +188,8 @@ pub struct Simulation<'a> {
     // the social security tax thresholds aren't adjusted for inflation, so
     // they shrink in today's dollars. Starts at 1.0.
     social_security_threshold_scale_: f64,
+    // this year's required minimum distribution, per month
+    rmd_monthly_: f64,
 }
 
 impl<'a> Simulation<'a> {
@@ -247,6 +250,7 @@ impl<'a> Simulation<'a> {
             expenses_: expenses,
             sum_of_returns_: 0.0,
             social_security_threshold_scale_: 1.0,
+            rmd_monthly_: 0.0,
         })
     }
 
@@ -283,6 +287,24 @@ impl<'a> Simulation<'a> {
                 }
             }
         }
+
+        // required minimum distributions from the pre-tax account, figured
+        // each January (or in the first month) from the balance then, and
+        // taken evenly over the year. They use the age of the oldest retiree
+        // alive. They're taxed as income and spent first; what isn't spent
+        // goes to the taxable account.
+        if date.month() == 1 || self.simulation_results_.monthly_snapshot.is_empty() {
+            let oldest = infos
+                .iter()
+                .zip(&alive)
+                .filter(|&(_, &alive)| alive)
+                .map(|(info, _)| info.date_of_birth)
+                .min();
+            self.rmd_monthly_ = oldest.map_or(0.0, |date_of_birth| {
+                rmd::annual_distribution(self.accounts_.pre_tax, &date_of_birth, date.year()) / 12.0
+            });
+        }
+        let rmd = self.accounts_.withdraw_pre_tax(self.rmd_monthly_);
 
         // social security (own, spousal, and survivor benefits), before or
         // after retirement
@@ -327,7 +349,7 @@ impl<'a> Simulation<'a> {
         } else {
             self.expenses_
         };
-        let withdrawals = f64::max(expenses - income, 0.0);
+        let withdrawals = f64::max(expenses - income - rmd, 0.0);
 
         // tax on income and withdrawals, using the filing status for the
         // number of retirees alive
@@ -349,11 +371,11 @@ impl<'a> Simulation<'a> {
             social_security_base: tax_table.social_security_base * scale,
             social_security_adjusted_base: tax_table.social_security_adjusted_base * scale,
         };
-        let surplus = f64::max(income - expenses, 0.0);
+        let surplus = f64::max(income + rmd - expenses, 0.0);
         let (taxes, tax_rate) = tax_rules.taxes_with_withdrawals(
             social_security,
             WithdrawalIncome {
-                ordinary: taxable_income,
+                ordinary: taxable_income + rmd,
                 capital_gains: dividends,
             },
             withdrawals,
@@ -361,15 +383,18 @@ impl<'a> Simulation<'a> {
             &self.accounts_,
         );
 
+        // the withdrawal rate is what the portfolio pays for, net of any
+        // distribution put back in the taxable account
         let net_cash_flow = income - expenses - taxes;
         let mut withdrawal_rate = 0.0;
-        if net_cash_flow >= 0.0 {
-            self.accounts_.deposit(net_cash_flow);
+        if net_cash_flow < 0.0 && self.accounts_.balance() + rmd > 0.0 {
+            withdrawal_rate = -net_cash_flow * 12.0 / (self.accounts_.balance() + rmd);
+        }
+        let cash = net_cash_flow + rmd;
+        if cash >= 0.0 {
+            self.accounts_.deposit(cash);
         } else {
-            if self.accounts_.balance() > 0.0 {
-                withdrawal_rate = -net_cash_flow * 12.0 / self.accounts_.balance();
-            }
-            self.accounts_.withdraw(-net_cash_flow);
+            self.accounts_.withdraw(-cash);
         }
 
         let annualized_return = self.accounts_.grow(
@@ -949,6 +974,97 @@ mod tests {
         assert_eq!(simulation.accounts_.taxable, 2000.0);
         assert_eq!(simulation.accounts_.taxable_basis, 2000.0);
         assert_eq!(simulation.accounts_.pre_tax, 1_000_000.0);
+    }
+
+    // a retired retiree with the given birth date, who lives to 90
+    fn rmd_retiree(year: i32, month: u32) -> crate::Retiree {
+        let mut retiree = test_retiree(60, 0.0);
+        retiree.date_of_birth = NaiveDate::from_ymd_opt(year, month, 15).unwrap();
+        retiree.life_expectancy = 90;
+        retiree
+    }
+
+    fn run_months(simulation: &mut Simulation, months: usize) {
+        for _ in 0..months {
+            simulation
+                .run_simulation_one_month(0.0, 0.0, 0.0, 0.0)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn test_rmd_moves_pre_tax_to_taxable() {
+        // 74 in 2026: the distribution period is 25.5. With no expenses or
+        // taxes, it all goes to the taxable account.
+        let input = test_input(vec![rmd_retiree(1952, 6)], 0.0);
+        let mut simulation = Simulation::new(&input).unwrap();
+        run_months(&mut simulation, 12);
+        let rmd = 1_000_000.0 / 25.5;
+        assert!((simulation.accounts_.pre_tax - (1_000_000.0 - rmd)).abs() < 0.01);
+        assert!((simulation.accounts_.taxable - rmd).abs() < 0.01);
+        assert!((simulation.accounts_.taxable_basis - rmd).abs() < 0.01);
+
+        // next year's is from the balance at the end of 2026, at 75
+        run_months(&mut simulation, 1);
+        let monthly = (1_000_000.0 - rmd) / 24.6 / 12.0;
+        assert!((simulation.accounts_.taxable - rmd - monthly).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_rmd_starts_at_75_for_born_1960() {
+        // 74 in 2034, 75 in 2035
+        let input = test_input(vec![rmd_retiree(1960, 3)], 0.0);
+        let mut simulation = Simulation::new(&input).unwrap();
+        run_months(&mut simulation, 12 * 9);
+        assert_eq!(simulation.accounts_.pre_tax, 1_000_000.0);
+        run_months(&mut simulation, 1);
+        let monthly = 1_000_000.0 / 24.6 / 12.0;
+        assert!((simulation.accounts_.pre_tax - (1_000_000.0 - monthly)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_rmd_is_taxed_and_spent_first() {
+        // a 10% tax on the distribution, which pays the $1000 of expenses
+        // before anything is sold in the taxable account. The rest is saved.
+        let mut input = test_input(vec![rmd_retiree(1952, 6)], 1000.0);
+        flat_tax(&mut input, 10.0);
+        input.portfolio.taxable_balance = 100_000.0;
+        input.portfolio.taxable_cost_basis = Some(50_000.0);
+        let mut simulation = Simulation::new(&input).unwrap();
+        run_months(&mut simulation, 1);
+        let monthly = 1_000_000.0 / 25.5 / 12.0;
+        let first = &simulation.simulation_results_.monthly_snapshot[0];
+        assert!(
+            (first.taxes - monthly * 0.1).abs() < 0.01,
+            "{}",
+            first.taxes
+        );
+        let saved = monthly * 0.9 - 1000.0;
+        assert!((simulation.accounts_.taxable - (100_000.0 + saved)).abs() < 0.01);
+        assert!((simulation.accounts_.taxable_basis - (50_000.0 + saved)).abs() < 0.01);
+        // the withdrawal rate is the net spending from the portfolio: the
+        // expenses and tax, not the whole distribution
+        let rate = (1000.0 + monthly * 0.1) * 12.0 / 1_100_000.0;
+        assert!((first.withdrawal_rate - rate).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_rmd_uses_oldest_living_retiree() {
+        // the older retiree (74 in 2026) dies in mid 2027. In 2028 the
+        // survivor is 72, too young for distributions.
+        let mut older = rmd_retiree(1952, 6);
+        older.life_expectancy = 74;
+        let input = test_input(vec![older, rmd_retiree(1956, 6)], 0.0);
+        let mut simulation = Simulation::new(&input).unwrap();
+        run_months(&mut simulation, 24);
+        let pre_tax = simulation.accounts_.pre_tax;
+        assert!(pre_tax < 1_000_000.0 - 1_000_000.0 / 25.5);
+        run_months(&mut simulation, 12);
+        assert_eq!(simulation.accounts_.pre_tax, pre_tax);
+        // and 73 in 2029
+        run_months(&mut simulation, 1);
+        let monthly = pre_tax / 26.5 / 12.0;
+        assert!((simulation.accounts_.pre_tax - (pre_tax - monthly)).abs() < 0.01);
     }
 
     #[test]

@@ -160,6 +160,14 @@ impl Accounts {
         }
     }
 
+    // withdraws from the pre-tax account only (for required minimum
+    // distributions), and returns the amount withdrawn
+    pub fn withdraw_pre_tax(&mut self, amount: f64) -> f64 {
+        let amount = amount.min(self.pre_tax).max(0.0);
+        self.pre_tax -= amount;
+        amount
+    }
+
     // the taxable income from withdrawing the given amount. Withdrawals
     // come from the taxable account first, then pre-tax, then Roth.
     pub fn withdrawal_income(&self, amount: f64) -> WithdrawalIncome {

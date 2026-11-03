@@ -156,6 +156,16 @@ Withdrawals come from `taxable_balance` first, then `pre_tax_balance`, then
 is treated as a Roth account, which assumes it will be spent on medical
 expenses (tax free).
 
+Required minimum distributions are taken from `pre_tax_balance` starting at
+age 73 (born 1951 through 1959) or 75 (born 1960 or later). Each January the
+required amount is the balance divided by the IRS Uniform Lifetime Table
+period for the age reached that year, and it's taken evenly over the year.
+It's taxed as income and spent first, before anything is withdrawn from the
+taxable account; what isn't spent is invested in the taxable account. With two
+retirees, the age of the older one alive is used, since the plan has a single
+pre-tax balance. The first distribution may legally wait until April 1 of the
+next year, but the simulation always takes it in the first year.
+
 The taxable account is tracked with a single cost basis. Each withdrawal is
 part basis and part gain, in proportion: if the account is worth $200,000 and
 the basis is $140,000, 30% of each withdrawal is taxed as a long-term capital
@@ -405,8 +415,7 @@ taxable account withdrawals and dividends are taxed at the 0%, 15%, and 20%
 long-term capital gains rates, stacked on top of ordinary income, and count
 toward the provisional income that makes social security taxable. All gains
 are treated as long-term and all dividends as qualified. Capital losses aren't
-deducted, and the 3.8% net investment income tax is not included. Required
-minimum distributions are not modelled.
+deducted, and the 3.8% net investment income tax is not included.
 Social security is taxed according to the IRS worksheet using provisional
 income. Besides the standard deduction and the additional deduction for people
 65 and older, we don't make any other adjustments to income or allow for

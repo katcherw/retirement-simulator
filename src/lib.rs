@@ -13,6 +13,7 @@ pub mod input;
 pub mod monte_carlo;
 pub mod portfolio;
 pub mod report;
+pub mod rmd;
 pub mod runner;
 pub mod scan;
 pub mod simulate;
