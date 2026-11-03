@@ -41,7 +41,8 @@ retirees:
 
 portfolio:
     # balances as of today. Withdrawals come from the taxable account first,
-    # then pre-tax, then Roth.
+    # then pre-tax, then Roth. Required minimum distributions are taken from
+    # pre-tax starting at 73 or 75.
     pre_tax_balance: 700000.0      # 401(k), 403(b), traditional IRA: taxed as income
     roth_balance: 300000.0         # Roth IRA, Roth 401(k), HSA: not taxed (optional)
     taxable_balance: 200000.0      # brokerage, savings, CDs (optional)
