@@ -23,3 +23,11 @@ pub const BONDS_STANDARD_DEVIATION: f64 = 6.0;
 pub const US_INTERNATIONAL_CORRELATION: f64 = 0.8;
 pub const US_BONDS_CORRELATION: f64 = 0.3;
 pub const INTERNATIONAL_BONDS_CORRELATION: f64 = 0.3;
+
+// income paid each year as a percentage of the balance (nominal), used to
+// tax the taxable account every year: approximate yields in 2026 of a US
+// total stock market fund, an international stock fund, and a US aggregate
+// bond fund.
+pub const US_EQUITY_DIVIDEND_YIELD: f64 = 1.3;
+pub const INTERNATIONAL_EQUITY_DIVIDEND_YIELD: f64 = 3.0;
+pub const BONDS_INTEREST_YIELD: f64 = 4.0;

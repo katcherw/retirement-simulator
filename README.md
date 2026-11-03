@@ -144,19 +144,38 @@ The benefits are then calculated from the full amounts:
 
 The portfolio section represents your investment accounts.
 
-| Value        | Description                                                                                                                                                                                                                     |
-| ---          | ---                                                                                                                                                                                                                             |
-| balance      | Today's balance of all accounts except Roth: 401(k), 403(b), traditional IRA, and brokerage accounts. Withdrawals are taxed as ordinary income. Contributions and any income left over after expenses and taxes are added here. |
-| roth_balance | Today's balance of Roth IRA, Roth 401(k), and HSA accounts. Withdrawals aren't taxed. Optional; if it's left out, all savings are treated as `balance`.                                                                         |
+| Value              | Description |
+| ---                | ---         |
+| pre_tax_balance    | Today's balance of 401(k), 403(b), and traditional IRA accounts. Withdrawals are taxed as ordinary income. Contributions from wages are added here. |
+| roth_balance       | Today's balance of Roth IRA, Roth 401(k), and HSA accounts. Withdrawals aren't taxed. Optional. |
+| taxable_balance    | Today's balance of brokerage accounts, savings, and CDs. Interest and dividends are taxed every year, and withdrawals are taxed only on the gain, at capital gains rates. Income left over after expenses and taxes is added here. Optional. |
+| taxable_cost_basis | What you paid for the investments in `taxable_balance`, shown on your brokerage statements. Optional; if it's left out, it's the same as the balance (no gains yet). |
 
-Withdrawals come from `balance` first, and from `roth_balance` only after
-`balance` runs out. Every account holds the same asset allocation (below).
+Withdrawals come from `taxable_balance` first, then `pre_tax_balance`, then
+`roth_balance`. Every account holds the same asset allocation (below). An HSA
+is treated as a Roth account, which assumes it will be spent on medical
+expenses (tax free).
 
-An HSA is treated as a Roth account, which assumes it will be spent on medical
-expenses (tax free). Brokerage accounts are included in `balance`, so their
-withdrawals are taxed as ordinary income, even though in practice only the
-gains would be taxed, at lower capital gains rates. This overstates their taxes,
-so results are on the safe side.
+The taxable account is tracked with a single cost basis. Each withdrawal is
+part basis and part gain, in proportion: if the account is worth $200,000 and
+the basis is $140,000, 30% of each withdrawal is taxed as a long-term capital
+gain. Reinvested interest and dividends add to the basis, since they've
+already been taxed. The basis isn't adjusted for inflation, so in today's
+dollars (which the simulation uses) it shrinks every year, and more of the
+account becomes taxable gain.
+
+If you don't know your cost basis:
+
+- For savings, CDs, and money market accounts, the basis is the balance, so
+  `taxable_cost_basis` can be left out.
+- Most brokerages show "cost basis" or "unrealized gain" on the positions
+  page. The basis is the balance minus the unrealized gain.
+- If you can't find it, guess low, such as half the balance for stock funds
+  held many years. A low guess overstates taxes rather than understating them.
+
+The basis matters most when much of your savings is in the taxable account and
+you withdraw a lot from it. When the taxable account is small or mostly cash,
+it makes little difference.
 
 The next blocks are the `pre_retirement_allocation` block which is your asset
 allocation before retirement and `post_retirement_allocation` block which is
@@ -185,7 +204,7 @@ actually grows at over many years. It is lower than the simple average of the
 yearly returns, because volatility drags down compound growth: a +50% year
 followed by a -50% year averages 0%, but leaves you with only 75% of your money.
 
-The last group of values in the `forecasts` block is the correlation of annual
+The next group of values in the `forecasts` block is the correlation of annual
 returns between the asset classes, used by the Monte Carlo simulation.
 
 | Value                           | Description                                                                   |
@@ -201,6 +220,20 @@ stocks and bonds has varied widely, from negative in 2000-2020 to strongly
 positive in years like 2022, so the sample value of 0.3 is a cautious middle
 ground. Some investment firms, such as J.P. Morgan in its Long-Term Capital
 Market Assumptions, publish forecasted correlations along with expected returns.
+
+The last group of values in the `forecasts` block is the income each asset
+class pays every year, as a percentage of the balance. It is part of the
+expected returns, not in addition to them, and only matters in the taxable
+account, where it's taxed every year: stock dividends as qualified dividends,
+bond interest as ordinary income. These are the yields funds quote, which are
+nominal: the whole payment is taxed, including the part that only makes up for
+inflation. The defaults are approximate 2026 yields of broad index funds.
+
+| Value                               | Description                                              |
+| ---                                 | ---                                                      |
+| us_equity_dividend_yield            | Dividends from US stocks. The default is 1.3.            |
+| international_equity_dividend_yield | Dividends from international stocks. The default is 3.0. |
+| bonds_interest_yield                | Interest from bonds. The default is 4.0.                 |
 
 ### Expenses
 
@@ -366,8 +399,14 @@ pension offset, the lump-sum death payment, and benefits for children are not
 modelled.
 
 **Income tax.** All income other than social security (including what is
-withdrawn from `balance`) is taxed at the normal income tax rate. Roth
-withdrawals aren't taxed. Required minimum distributions are not modelled.
+withdrawn from `pre_tax_balance`, and bond interest in the taxable account) is
+taxed at the normal income tax rate. Roth withdrawals aren't taxed. Gains on
+taxable account withdrawals and dividends are taxed at the 0%, 15%, and 20%
+long-term capital gains rates, stacked on top of ordinary income, and count
+toward the provisional income that makes social security taxable. All gains
+are treated as long-term and all dividends as qualified. Capital losses aren't
+deducted, and the 3.8% net investment income tax is not included. Required
+minimum distributions are not modelled.
 Social security is taxed according to the IRS worksheet using provisional
 income. Besides the standard deduction and the additional deduction for people
 65 and older, we don't make any other adjustments to income or allow for
