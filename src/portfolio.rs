@@ -39,9 +39,7 @@ pub struct Portfolio {
     pub taxable_cost_basis: Option<f64>,
 
     // the hyphenated names are still accepted so existing files keep working
-    #[serde(alias = "pre-retirement_allocation")]
     pub pre_retirement_allocation: Allocation,
-    #[serde(alias = "post-retirement_allocation")]
     pub post_retirement_allocation: Allocation,
 
     // optional: left out, the built-in forecasts are used

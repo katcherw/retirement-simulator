@@ -9,7 +9,7 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
 use crate::portfolio::{Allocation, Forecasts, Portfolio};
-use crate::tax_rates::{TaxRates, TAX_YEAR};
+use crate::tax_rates::TaxRates;
 use crate::{monte_carlo, utils};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,7 +20,6 @@ pub struct Retiree {
     pub date_of_birth: NaiveDate,
     pub retirement_age: u32,
     // the old misspelling is still accepted so existing files keep working
-    #[serde(alias = "life_expectency")]
     pub life_expectancy: u32,
     #[serde(rename = "wage_annual_salary")]
     pub salary_annual: f64,
@@ -280,65 +279,13 @@ fn validate_forecasts(forecasts: &Forecasts) -> Result<(), String> {
     Ok(())
 }
 
-// a friendlier message for some common mistakes, otherwise serde's error,
-// which names the field and line
+// a friendlier message for an empty file, otherwise serde's error, which
+// names the field and line
 fn explain_parse_error(text: &str, error: serde_yaml_ng::Error) -> String {
     match serde_yaml_ng::from_str::<serde_yaml_ng::Value>(text) {
         Ok(serde_yaml_ng::Value::Null) => "input file is empty".to_string(),
-        // older input files had their own tax rates
-        Ok(value) if !value["tax_rates"].is_null() => format!(
-            "tax_rates is no longer part of the input file: the {TAX_YEAR} federal \
-             tax rates are built in. Remove the tax_rates block."
-        ),
-        // older input files had brokerage accounts in the pre-tax balance
-        Ok(value) if !value["portfolio"]["balance"].is_null() => {
-            "the portfolio balance has been split: enter 401(k), 403(b), and traditional \
-             IRA accounts as pre_tax_balance, and brokerage and savings accounts as \
-             taxable_balance (with taxable_cost_basis, what you paid for them). Both \
-             are needed for taxes and required minimum distributions."
-                .to_string()
-        }
-        // older input files also had social security amounts at 62 and 70
-        Ok(value) if has_old_social_security_amounts(&value) => {
-            "social_security_amount_early and social_security_amount_delayed are no \
-             longer used: the benefit at social_security_age is calculated from \
-             social_security_amount_full, the amount at full retirement age. Remove \
-             them."
-                .to_string()
-        }
-        // older input files had the forecasts directly in the portfolio block
-        Ok(value) if has_forecasts_in_portfolio(&value) => {
-            "the expected returns, standard deviations, and correlations now go in \
-             a forecasts block inside the portfolio block (see input.yaml), and are \
-             optional"
-                .to_string()
-        }
         _ => format!("Invalid input: {error}"),
     }
-}
-
-fn has_old_social_security_amounts(value: &serde_yaml_ng::Value) -> bool {
-    let Some(retirees) = value["retirees"].as_sequence() else {
-        return false;
-    };
-    retirees.iter().any(|retiree| {
-        retiree.as_mapping().is_some_and(|retiree| {
-            retiree.keys().filter_map(|key| key.as_str()).any(|key| {
-                key == "social_security_amount_early" || key == "social_security_amount_delayed"
-            })
-        })
-    })
-}
-
-fn has_forecasts_in_portfolio(value: &serde_yaml_ng::Value) -> bool {
-    let Some(portfolio) = value["portfolio"].as_mapping() else {
-        return false;
-    };
-    portfolio.keys().filter_map(|key| key.as_str()).any(|key| {
-        key.ends_with("_expected_returns")
-            || key.ends_with("_standard_deviation")
-            || key.ends_with("_correlation")
-    })
 }
 
 fn validate_allocation(allocation: &Allocation, name: &str) -> Result<(), String> {
@@ -407,14 +354,6 @@ mod tests {
         );
         // and aren't written to a saved plan
         assert!(!input.to_yaml().unwrap().contains("tax_rates"));
-
-        // older input files had their own tax rates
-        let yaml = sample() + "\ntax_rates:\n    expected_inflation: 2.5\n";
-        let err = Input::from_yaml(&yaml, start_date()).unwrap_err();
-        assert!(err.contains("built in"), "{err}");
-        let yaml = "tax_rates:\n  standard_deduction: 32200.0\n  levels:\n    - {income: 0.0, rate: 10.0}\n";
-        let err = Input::from_yaml(yaml, start_date()).unwrap_err();
-        assert!(err.contains("Remove the tax_rates block"), "{err}");
     }
 
     // the sample input without the optional forecasts block
@@ -458,17 +397,6 @@ mod tests {
             forecasts.bonds_standard_deviation,
             defaults::BONDS_STANDARD_DEVIATION
         );
-    }
-
-    #[test]
-    fn test_forecasts_in_old_place() {
-        // older input files had the forecasts directly in the portfolio block
-        let old = minimal_sample().replace(
-            "international: 24.0",
-            "international: 24.0\n    bonds_expected_returns: 1.0",
-        );
-        let err = Input::from_yaml(&old, start_date()).unwrap_err();
-        assert!(err.contains("forecasts block"), "{err}");
     }
 
     #[test]
@@ -587,16 +515,6 @@ mod tests {
         // a typo would otherwise be silently ignored
         let err = parse_modified_sample("monthly: 9000.0", "montly: 9000.0").unwrap_err();
         assert!(err.contains("unknown field `montly`"), "{err}");
-    }
-
-    #[test]
-    fn test_parse_accepts_old_field_names() {
-        let input = parse_modified_sample("life_expectancy: 90", "life_expectency: 85").unwrap();
-        assert_eq!(input.retirees[0].life_expectancy, 85);
-        let input =
-            parse_modified_sample("pre_retirement_allocation:", "pre-retirement_allocation:")
-                .unwrap();
-        assert_eq!(input.portfolio.pre_retirement_allocation.us_equities, 56.0);
     }
 
     #[test]
@@ -805,20 +723,6 @@ mod tests {
     }
 
     #[test]
-    fn test_old_social_security_amounts() {
-        // older input files also had the amounts at 62 and 70
-        let old = sample().replacen(
-            "social_security_amount_full: 3870.0",
-            "social_security_amount_early: 2693.0\n       \
-             social_security_amount_full: 3870.0\n       \
-             social_security_amount_delayed: 4809.0",
-            1,
-        );
-        let err = Input::from_yaml(&old, start_date()).unwrap_err();
-        assert!(err.contains("are no longer used"), "{err}");
-    }
-
-    #[test]
     fn test_parse_taxable_account() {
         let input = parse_sample();
         assert_eq!(input.portfolio.taxable_balance, 200000.0);
@@ -844,13 +748,6 @@ mod tests {
             err.contains("taxable_cost_basis can't be negative"),
             "{err}"
         );
-    }
-
-    #[test]
-    fn test_old_portfolio_balance() {
-        let err =
-            parse_modified_sample("pre_tax_balance: 700000.0", "balance: 700000.0").unwrap_err();
-        assert!(err.contains("balance has been split"), "{err}");
     }
 
     #[test]
