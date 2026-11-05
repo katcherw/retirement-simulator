@@ -101,6 +101,7 @@ of the retiree in the first block.
 | social_security_age             | Age (62 to 70) when you intend to claim social security. You can try different ages to find the best one. This doesn't need to be the retirement age. |
 | pension_age                     | Age when you start receiving your pension benefits                                                                                                                                                                                |
 | pension_monthly_income          | Monthly income from your pension                                                                                                                                                                                                  |
+| pension_cola_percent            | The pension's annual cost-of-living increase, as a percentage. Optional: leave it out if the pension keeps up with inflation (most government pensions, at least partly). Use 0 for a fixed pension, as most company pensions are. A pension without a full increase shrinks with inflation starting today, since the amount on a pension statement is in future dollars. |
 | other_monthly_retirement_income | Any other source of income                                                                                                                                                                                                        |
 
 Also in the retirees section is the social security benefit at full
@@ -360,8 +361,9 @@ returns. This makes it easier to interpret the output of future years. For
 example, if your monthly expenses in 30 years are $20K, is that high or low? It
 is hard to interpret amounts that far in the future because of the compounding
 of inflation. Instead, the effect of inflation is accounted for by the lower
-returns of investments. It is assumed that social security, pensions, and other
-income are adjusted for inflation annually.
+returns of investments. It is assumed that social security and other income
+are adjusted for inflation annually, and pensions too unless
+`pension_cola_percent` says otherwise.
 
 **Rebalancing.** It is assumed that the portfolio is rebalanced continuously,
 and that every account holds the same asset allocation.

@@ -17,6 +17,8 @@ retirees:
        social_security_age: 67                  # age to claim social security (62 to 70)
        pension_age: 62                          # age when pension income begins
        pension_monthly_income: 1000.0           # monthly income in today's dollars
+       pension_cola_percent: 0.0                # annual cost-of-living increase; leave
+                                                # out if it keeps up with inflation
        other_monthly_retirement_income: 500.0   # retirement income from all other sources
 
        # Monthly benefit at full retirement age (67 if born in 1960 or
