@@ -190,6 +190,9 @@ pub struct Simulation<'a> {
     social_security_threshold_scale_: f64,
     // this year's required minimum distribution, per month
     rmd_monthly_: f64,
+    // each retiree's pension in today's dollars, as a fraction of the amount
+    // entered. Stays 1.0 for pensions that keep up with inflation.
+    pension_scale_: Vec<f64>,
 }
 
 impl<'a> Simulation<'a> {
@@ -251,7 +254,25 @@ impl<'a> Simulation<'a> {
             sum_of_returns_: 0.0,
             social_security_threshold_scale_: 1.0,
             rmd_monthly_: 0.0,
+            pension_scale_: vec![1.0; input.retirees.len()],
         })
+    }
+
+    // a pension without a full cost-of-living adjustment is a fixed amount
+    // from today (as on a pension statement), so inflation shrinks it in
+    // today's dollars. Once it starts, its cost-of-living increases offset
+    // some of that. Inflation is annual percent.
+    fn adjust_pensions_for_inflation(&mut self, date: &NaiveDate, inflation: f64) {
+        for (retiree, scale) in self.input_.retirees.iter().zip(&mut self.pension_scale_) {
+            let Some(cola) = retiree.pension_cola_percent else {
+                continue;
+            };
+            let mut growth = 1.0 / (1.0 + inflation / 100.0);
+            if *date >= add_years(&retiree.date_of_birth, retiree.pension_age) {
+                growth *= 1.0 + cola / 100.0;
+            }
+            *scale *= growth.powf(1.0 / 12.0);
+        }
     }
 
     // returns true if simulation finished. Returns and inflation are annual
@@ -327,8 +348,9 @@ impl<'a> Simulation<'a> {
         for (i, retiree) in self.input_.retirees.iter().enumerate() {
             let pension_date = add_years(&retiree.date_of_birth, retiree.pension_age);
             if alive[i] && date >= pension_date {
-                income += retiree.pension_monthly_income;
-                taxable_income += retiree.pension_monthly_income;
+                let pension = retiree.pension_monthly_income * self.pension_scale_[i];
+                income += pension;
+                taxable_income += pension;
             }
         }
 
@@ -404,6 +426,7 @@ impl<'a> Simulation<'a> {
             bonds_expected_returns,
         );
         self.accounts_.adjust_basis_for_inflation(inflation);
+        self.adjust_pensions_for_inflation(&date, inflation);
         self.sum_of_returns_ += annualized_return;
         self.simulation_results_.average_return =
             self.sum_of_returns_ / (self.simulation_results_.monthly_snapshot.len() as f64 + 1.0);
@@ -573,6 +596,7 @@ mod tests {
             social_security_amount_full: 0.0,
             pension_age: 0,
             pension_monthly_income: 0.0,
+            pension_cola_percent: None,
             other_monthly_retirement_income: 0.0,
         }
     }
@@ -974,6 +998,78 @@ mod tests {
         assert_eq!(simulation.accounts_.taxable, 2000.0);
         assert_eq!(simulation.accounts_.taxable_basis, 2000.0);
         assert_eq!(simulation.accounts_.pre_tax, 1_000_000.0);
+    }
+
+    // a $1000/month pension from 60 (the start), with no expenses or tax
+    fn pension_input(cola: Option<f64>, pension_age: u32) -> Input {
+        let mut retiree = test_retiree(60, 0.0);
+        retiree.pension_age = pension_age;
+        retiree.pension_monthly_income = 1000.0;
+        retiree.pension_cola_percent = cola;
+        test_input(vec![retiree], 0.0)
+    }
+
+    // the monthly pension (all of the income) after each month, with the
+    // given annual inflation
+    fn pension_by_month(input: &Input, inflation: f64, months: usize) -> Vec<f64> {
+        let mut simulation = Simulation::new(input).unwrap();
+        for _ in 0..months {
+            simulation
+                .run_simulation_one_month(0.0, 0.0, 0.0, inflation)
+                .unwrap();
+        }
+        let snapshots = &simulation.simulation_results_.monthly_snapshot;
+        snapshots.iter().map(|s| s.income).collect()
+    }
+
+    #[test]
+    fn test_pension_keeps_up_with_inflation_by_default() {
+        let pensions = pension_by_month(&pension_input(None, 60), 12.0, 13);
+        assert!(pensions.iter().all(|&p| p == 1000.0), "{pensions:?}");
+    }
+
+    #[test]
+    fn test_fixed_pension_shrinks_with_inflation() {
+        // after a year of 12% inflation, $1000 is worth $1000 / 1.12
+        let pensions = pension_by_month(&pension_input(Some(0.0), 60), 12.0, 13);
+        assert_eq!(pensions[0], 1000.0);
+        assert!(
+            (pensions[12] - 1000.0 / 1.12).abs() < 0.01,
+            "{}",
+            pensions[12]
+        );
+    }
+
+    #[test]
+    fn test_pension_cola_offsets_inflation() {
+        // a 2% increase with 5% inflation
+        let pensions = pension_by_month(&pension_input(Some(2.0), 60), 5.0, 13);
+        assert!(
+            (pensions[12] - 1000.0 * 1.02 / 1.05).abs() < 0.01,
+            "{}",
+            pensions[12]
+        );
+        // and fully, when they're the same
+        let pensions = pension_by_month(&pension_input(Some(5.0), 60), 5.0, 13);
+        assert!((pensions[12] - 1000.0).abs() < 0.01, "{}", pensions[12]);
+    }
+
+    #[test]
+    fn test_pension_shrinks_before_it_starts() {
+        // starts at 61, a year from now. Inflation shrinks it until then,
+        // and the 5% increases only start with it.
+        let pensions = pension_by_month(&pension_input(Some(5.0), 61), 5.0, 25);
+        assert_eq!(pensions[11], 0.0);
+        assert!(
+            (pensions[12] - 1000.0 / 1.05).abs() < 0.01,
+            "{}",
+            pensions[12]
+        );
+        assert!(
+            (pensions[24] - 1000.0 / 1.05).abs() < 0.01,
+            "{}",
+            pensions[24]
+        );
     }
 
     // a retired retiree with the given birth date, who lives to 90

@@ -19,7 +19,6 @@ pub struct Retiree {
     #[serde(with = "date_format")]
     pub date_of_birth: NaiveDate,
     pub retirement_age: u32,
-    // the old misspelling is still accepted so existing files keep working
     pub life_expectancy: u32,
     #[serde(rename = "wage_annual_salary")]
     pub salary_annual: f64,
@@ -31,6 +30,10 @@ pub struct Retiree {
     pub social_security_amount_full: f64,
     pub pension_age: u32,
     pub pension_monthly_income: f64,
+    // the pension's annual cost-of-living increase (percent). None means it
+    // keeps up with inflation; 0 is a fixed pension.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pension_cola_percent: Option<f64>,
     pub other_monthly_retirement_income: f64,
 }
 
@@ -152,6 +155,7 @@ pub const MIN_EXPECTED_RETURN: f64 = -50.0;
 pub const MAX_EXPECTED_RETURN: f64 = 50.0;
 pub const MAX_STANDARD_DEVIATION: f64 = 50.0;
 pub const MAX_YIELD: f64 = 20.0;
+pub const MAX_PENSION_COLA: f64 = 20.0;
 
 fn validate_retiree(retiree: &Retiree, start_date: &NaiveDate) -> Result<(), String> {
     let name = &retiree.name;
@@ -192,6 +196,14 @@ fn validate_retiree(retiree: &Retiree, start_date: &NaiveDate) -> Result<(), Str
     ];
     for (amount, field) in amounts {
         check_amount(amount, &format!("{name}: {field}"))?;
+    }
+    if let Some(cola) = retiree.pension_cola_percent {
+        check_range(
+            cola,
+            0.0,
+            MAX_PENSION_COLA,
+            &format!("{name}: pension_cola_percent"),
+        )?;
     }
     check_percent(
         retiree.retirement_contribution_percent,
@@ -748,6 +760,28 @@ mod tests {
             err.contains("taxable_cost_basis can't be negative"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn test_pension_cola() {
+        // optional: left out, the pension keeps up with inflation
+        let input = parse_sample();
+        assert_eq!(input.retirees[1].pension_cola_percent, None);
+        assert!(!input
+            .to_yaml()
+            .unwrap()
+            .contains("pension_cola_percent: null"));
+
+        let err = validate_modified(|input| {
+            input.retirees[0].pension_cola_percent = Some(-1.0);
+        })
+        .unwrap_err();
+        assert!(err.contains("John Doe: pension_cola_percent"), "{err}");
+        let err = validate_modified(|input| {
+            input.retirees[0].pension_cola_percent = Some(25.0);
+        })
+        .unwrap_err();
+        assert!(err.contains("John Doe: pension_cola_percent"), "{err}");
     }
 
     #[test]
