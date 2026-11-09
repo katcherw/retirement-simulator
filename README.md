@@ -67,6 +67,13 @@ historical and Monte Carlo simulations: the balance at the start of each year
 at the worst, 10th, 25th, 50th, 75th, 90th percentiles and best, for charting
 the range of outcomes over time. Dates are in yyyy-mm-dd format.
 
+Each year in the JSON also splits the monthly income by source (wages, social
+security, pension, and other income) and shows what's taken from the accounts:
+required minimum distributions and other withdrawals. Like the other yearly
+figures, these are for the first month of the year. Wages are after pre-tax
+contributions, and count only once the household has retired, because until
+then they're assumed to cover expenses.
+
 The simulation engine is also a Rust library (`src/lib.rs`), which the command
 line program uses: `Input::from_yaml` parses and validates a plan,
 `runner::run_all` runs all the simulations, and `report::build` analyzes their

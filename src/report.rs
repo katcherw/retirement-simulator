@@ -49,6 +49,15 @@ pub struct YearRow {
     pub balance: f64,
     pub monthly_expenses: f64,
     pub monthly_income: f64,
+    // the income by source, which adds up to monthly_income. Wages are after
+    // pre-tax contributions, and count only once the household has retired.
+    pub monthly_wages: f64,
+    pub monthly_social_security: f64,
+    pub monthly_pension: f64,
+    pub monthly_other_income: f64,
+    // money taken from the accounts, which isn't part of monthly_income
+    pub monthly_required_withdrawals: f64,
+    pub monthly_other_withdrawals: f64,
     pub monthly_taxes: f64,
     // marginal tax bracket
     pub tax_rate: f64,
@@ -171,6 +180,12 @@ fn simulation_report(results: &simulate::SimulationResults) -> SimulationReport 
             balance: snapshot.balance,
             monthly_expenses: snapshot.expenses,
             monthly_income: snapshot.income,
+            monthly_wages: snapshot.wages,
+            monthly_social_security: snapshot.social_security,
+            monthly_pension: snapshot.pension,
+            monthly_other_income: snapshot.other_income,
+            monthly_required_withdrawals: snapshot.required_withdrawals,
+            monthly_other_withdrawals: snapshot.other_withdrawals,
             monthly_taxes: snapshot.taxes,
             tax_rate: snapshot.tax_rate,
             withdrawal_rate: snapshot.withdrawal_rate * 100.0,
@@ -327,6 +342,32 @@ mod tests {
     #[test]
     fn test_seed_reported() {
         assert_eq!(sample_report().monte_carlo.seed, 42);
+    }
+
+    #[test]
+    fn test_year_rows_income_by_source_adds_up() {
+        for row in &sample_report().uniform.years {
+            let sources = row.monthly_wages
+                + row.monthly_social_security
+                + row.monthly_pension
+                + row.monthly_other_income;
+            assert!((sources - row.monthly_income).abs() < 1e-6, "{row:?}");
+
+            // the money coming in covers expenses and taxes, and the rest is
+            // saved
+            let money_in = row.monthly_income
+                + row.monthly_required_withdrawals
+                + row.monthly_other_withdrawals;
+            assert!(
+                money_in >= row.monthly_expenses + row.monthly_taxes - 1e-6,
+                "{row:?}"
+            );
+            // nothing is sold from the accounts while there's money to save
+            if row.monthly_other_withdrawals > 0.0 {
+                let needed = row.monthly_expenses + row.monthly_taxes;
+                assert!((money_in - needed).abs() < 1e-6, "{row:?}");
+            }
+        }
     }
 
     #[test]

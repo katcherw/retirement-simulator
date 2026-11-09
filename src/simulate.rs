@@ -18,6 +18,15 @@ pub struct MonthlySnapshot {
     pub balance: f64,
     pub expenses: f64,
     pub income: f64,
+    // the income by source, which adds up to income. Wages are after pre-tax
+    // contributions, and count only once the household has retired.
+    pub wages: f64,
+    pub social_security: f64,
+    pub pension: f64,
+    pub other_income: f64,
+    // money taken from the accounts, which isn't part of income
+    pub required_withdrawals: f64,
+    pub other_withdrawals: f64,
     pub tax_rate: f64,
     pub taxes: f64,
     pub withdrawal_rate: f64,
@@ -345,20 +354,24 @@ impl<'a> Simulation<'a> {
         taxable_income += interest;
 
         // pension income, before or after retirement, until the retiree dies
+        let mut total_pension = 0.0;
         for (i, retiree) in self.input_.retirees.iter().enumerate() {
             let pension_date = add_years(&retiree.date_of_birth, retiree.pension_age);
             if alive[i] && date >= pension_date {
                 let pension = retiree.pension_monthly_income * self.pension_scale_[i];
                 income += pension;
                 taxable_income += pension;
+                total_pension += pension;
             }
         }
 
         // other retirement income, after each retiree's own retirement
+        let mut other_income = 0.0;
         for (i, retiree) in self.input_.retirees.iter().enumerate() {
             if alive[i] && date >= infos[i].retirement_date {
                 income += retiree.other_monthly_retirement_income;
                 taxable_income += retiree.other_monthly_retirement_income;
+                other_income += retiree.other_monthly_retirement_income;
             }
         }
 
@@ -413,9 +426,13 @@ impl<'a> Simulation<'a> {
             withdrawal_rate = -net_cash_flow * 12.0 / (self.accounts_.balance() + rmd);
         }
         let cash = net_cash_flow + rmd;
+        let mut other_withdrawals = 0.0;
         if cash >= 0.0 {
             self.accounts_.deposit(cash);
         } else {
+            // what actually comes out, which is less than what's needed in
+            // the month the money runs out
+            other_withdrawals = (-cash).min(self.accounts_.balance());
             self.accounts_.withdraw(-cash);
         }
 
@@ -436,6 +453,12 @@ impl<'a> Simulation<'a> {
             balance: self.accounts_.balance(),
             expenses,
             income,
+            wages,
+            social_security,
+            pension: total_pension,
+            other_income,
+            required_withdrawals: rmd,
+            other_withdrawals,
             taxes,
             tax_rate,
             withdrawal_rate,
@@ -1142,6 +1165,83 @@ mod tests {
         // expenses and tax, not the whole distribution
         let rate = (1000.0 + monthly * 0.1) * 12.0 / 1_100_000.0;
         assert!((first.withdrawal_rate - rate).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_pension_and_other_income_by_source() {
+        // retired, with the rest of the expenses coming from the accounts
+        let mut retiree = test_retiree(60, 0.0);
+        retiree.pension_monthly_income = 1000.0;
+        retiree.other_monthly_retirement_income = 500.0;
+        let input = test_input(vec![retiree], 2000.0);
+        let results = run_simulation(&input).unwrap();
+        let first = &results.monthly_snapshot[0];
+        assert_eq!(first.income, 1500.0);
+        assert_eq!(first.pension, 1000.0);
+        assert_eq!(first.other_income, 500.0);
+        assert_eq!(first.wages, 0.0);
+        assert_eq!(first.social_security, 0.0);
+        assert_eq!(first.required_withdrawals, 0.0);
+        assert_eq!(first.other_withdrawals, 500.0);
+    }
+
+    #[test]
+    fn test_wages_by_source() {
+        // the first retiree has retired, so the second's wages count, after
+        // their 10% contribution
+        let input = test_input(
+            vec![test_retiree(60, 0.0), test_retiree(62, 120_000.0)],
+            1000.0,
+        );
+        let results = run_simulation(&input).unwrap();
+        let first = &results.monthly_snapshot[0];
+        assert_eq!(first.wages, 9000.0);
+        assert_eq!(first.income, 9000.0);
+    }
+
+    #[test]
+    fn test_wages_not_counted_before_household_retires() {
+        let input = test_input(vec![test_retiree(62, 120_000.0)], 1000.0);
+        let results = run_simulation(&input).unwrap();
+        assert_eq!(results.monthly_snapshot[0].wages, 0.0);
+    }
+
+    #[test]
+    fn test_social_security_by_source() {
+        let input = social_security_only_input(0.0);
+        let results = run_simulation(&input).unwrap();
+        let last = results.monthly_snapshot.last().unwrap();
+        assert!(last.social_security > 0.0);
+        assert_eq!(last.social_security, last.income);
+    }
+
+    #[test]
+    fn test_required_withdrawals_by_source() {
+        // the distribution is more than the expenses, so nothing else is
+        // taken from the accounts
+        let input = test_input(vec![rmd_retiree(1952, 6)], 1000.0);
+        let mut simulation = Simulation::new(&input).unwrap();
+        run_months(&mut simulation, 1);
+        let first = &simulation.simulation_results_.monthly_snapshot[0];
+        let monthly = 1_000_000.0 / 25.5 / 12.0;
+        assert!((first.required_withdrawals - monthly).abs() < 0.01);
+        assert_eq!(first.other_withdrawals, 0.0);
+        assert_eq!(first.income, 0.0);
+    }
+
+    #[test]
+    fn test_other_withdrawals_stop_at_what_is_left() {
+        // $600 is needed each month from $1000, so only $400 is left for the
+        // second month
+        let mut input = test_input(vec![test_retiree(60, 0.0)], 600.0);
+        input.portfolio.pre_tax_balance = 1000.0;
+        let results = run_simulation(&input).unwrap();
+        let withdrawals: Vec<f64> = results
+            .monthly_snapshot
+            .iter()
+            .map(|s| s.other_withdrawals)
+            .collect();
+        assert_eq!(withdrawals, [600.0, 400.0]);
     }
 
     #[test]
