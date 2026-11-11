@@ -211,11 +211,13 @@ add up to exactly 100.0.
 The optional `forecasts` block inside the portfolio block has the expected
 returns and expected standard deviation of returns, and the correlations below.
 Forecasted longterm returns published by Fidelity Investments are built in (see
-`src/defaults.rs`), and the sample file spells them out. Leave out the block,
-or any value in it, to use the built-in value, or change them as you like. All
-expected returns are
-real returns as opposed to nominal returns. In other words, the returns are the
-actual returns minus inflation.
+`src/defaults.rs`) and updated each year, and the sample file shows them in a
+commented-out block. Leave out the block, or any value in it, to use the
+built-in value. A value you give stays fixed: it doesn't change when the
+built-in forecasts are updated, and it's kept when a plan is saved, while values
+left out aren't saved. To go back to the built-in value, delete it from your
+file. All expected returns are real returns as opposed to nominal returns. In
+other words, the returns are the actual returns minus inflation.
 
 Expected returns must be geometric (compound annual) averages, which is how
 Fidelity and most other firms publish their forecasts. This is the rate money
@@ -226,17 +228,17 @@ followed by a -50% year averages 0%, but leaves you with only 75% of your money.
 The next group of values in the `forecasts` block is the correlation of annual
 returns between the asset classes, used by the Monte Carlo simulation.
 
-| Value                           | Description                                                                   |
-| ---                             | ---                                                                           |
-| us_international_correlation    | Correlation between US and international stocks. The sample file uses 0.8.    |
-| us_bonds_correlation            | Correlation between US stocks and bonds. The sample file uses 0.3.            |
-| international_bonds_correlation | Correlation between international stocks and bonds. The sample file uses 0.3. |
+| Value                           | Description                                                                    |
+| ---                             | ---                                                                            |
+| us_international_correlation    | Correlation between US and international stocks. The built-in value is 0.8.    |
+| us_bonds_correlation            | Correlation between US stocks and bonds. The built-in value is 0.3.            |
+| international_bonds_correlation | Correlation between international stocks and bonds. The built-in value is 0.3. |
 
 Correlations range from -1.0 (always move in opposite directions) to 1.0 (always
 move together). US and international stocks have historically been strongly
 correlated (about 0.7 to 0.85 depending on the period). The correlation between
 stocks and bonds has varied widely, from negative in 2000-2020 to strongly
-positive in years like 2022, so the sample value of 0.3 is a cautious middle
+positive in years like 2022, so the built-in value of 0.3 is a cautious middle
 ground. Some investment firms, such as J.P. Morgan in its Long-Term Capital
 Market Assumptions, publish forecasted correlations along with expected returns.
 

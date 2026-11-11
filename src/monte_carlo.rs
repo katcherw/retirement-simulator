@@ -177,7 +177,7 @@ impl MonteCarloScan {
 impl scan::Scannable for MonteCarloScan {
     fn run_scan(&mut self, input: &Input) -> Result<scan::ScanResults, String> {
         let mut results = scan::ScanResults::new();
-        let sampler = ReturnsSampler::new(&input.portfolio.forecasts)?;
+        let sampler = ReturnsSampler::new(&input.portfolio.forecasts())?;
 
         for index in 0..1000 {
             let scenario = self.run_scenario(input, &sampler)?;
