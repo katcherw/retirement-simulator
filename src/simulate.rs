@@ -245,7 +245,7 @@ impl<'a> Simulation<'a> {
             .zip(simulation_results.retirees.iter())
             .map(|(retiree, info)| social_security::Person {
                 date_of_birth: retiree.date_of_birth,
-                pia: retiree.social_security_amount_full,
+                pia: retiree.social_security_full(),
                 claiming_age: retiree.social_security_age,
                 death_date: info.death_date,
                 annual_earnings: retiree.salary_annual,
@@ -617,7 +617,7 @@ mod tests {
             salary_annual,
             retirement_contribution_percent: 10.0,
             social_security_age: 67,
-            social_security_amount_full: 0.0,
+            social_security_amount_full: Some(0.0),
             pension_age: 0,
             pension_monthly_income: 0.0,
             pension_cola_percent: None,
@@ -824,11 +824,11 @@ mod tests {
         first.life_expectancy = first_life_expectancy;
         first.pension_monthly_income = 500.0;
         first.social_security_age = 62;
-        first.social_security_amount_full = 2000.0;
+        first.social_security_amount_full = Some(2000.0);
         let mut second = test_retiree(60, 0.0);
         second.life_expectancy = 66;
         second.social_security_age = 62;
-        second.social_security_amount_full = 1000.0;
+        second.social_security_amount_full = Some(1000.0);
         let mut input = test_input(vec![first, second], 5000.0);
         input.expenses.survivor_percent = 50.0;
         input
@@ -888,7 +888,7 @@ mod tests {
         let mut retiree = test_retiree(64, 120000.0);
         retiree.life_expectancy = 70;
         retiree.social_security_age = 62;
-        retiree.social_security_amount_full = 2000.0;
+        retiree.social_security_amount_full = Some(2000.0);
         let input = test_input(vec![retiree], 0.0);
         let results = run_simulation(&input).unwrap();
         let income_on = |year, month| {
@@ -1466,7 +1466,7 @@ mod tests {
     fn social_security_only_input(inflation: f64) -> Input {
         let mut retiree = test_retiree(60, 0.0);
         retiree.social_security_age = 62;
-        retiree.social_security_amount_full = 4000.0 / 0.7;
+        retiree.social_security_amount_full = Some(4000.0 / 0.7);
         let mut input = test_input(vec![retiree], 0.0);
         input.tax_rates.expected_inflation = inflation;
         input.tax_rates.single = flat_tax_table(0.0, 10.0);

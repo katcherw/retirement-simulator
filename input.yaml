@@ -25,7 +25,8 @@ retirees:
        # later) from the social security web site. The benefit at
        # social_security_age is calculated from it. A spouse who never
        # worked enters 0.0: spousal and survivor benefits are calculated
-       # from the other retiree's amount.
+       # from the other retiree's amount. Optional: leave it out to estimate
+       # it roughly from wage_annual_salary.
        social_security_amount_full: 3870.0
 
      - name: Jane Doe

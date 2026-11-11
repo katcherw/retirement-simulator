@@ -178,6 +178,25 @@ fn print_historical_result_details(historical: &report::HistoricalReport) {
     println!("Worst result was years {}", scenarios[0].description);
 }
 
+// social security amounts estimated because the plan left them out
+fn print_estimates(input: &Input) {
+    let estimated: Vec<_> = input
+        .retirees
+        .iter()
+        .filter(|retiree| retiree.social_security_is_estimated())
+        .collect();
+    for retiree in &estimated {
+        println!(
+            "{}: social security at full retirement age estimated from salary: ${} a month",
+            retiree.name,
+            num_with_commas(retiree.social_security_full().round() as u64)
+        );
+    }
+    if !estimated.is_empty() {
+        println!();
+    }
+}
+
 fn print_report(report: &Report) {
     println!("-= Simulation using uniform returns =-");
     println!();
@@ -280,6 +299,9 @@ fn main() {
         println!("{e}");
         process::exit(1);
     });
+    if !args.json {
+        print_estimates(&input);
+    }
 
     // pick a random seed if none was given, and print it so the run can be
     // repeated. Kept to 32 bits so it's easy to retype.

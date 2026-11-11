@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::portfolio::{Allocation, Forecasts, Portfolio};
 use crate::tax_rates::TaxRates;
-use crate::{monte_carlo, utils};
+use crate::{monte_carlo, social_security, utils};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -27,7 +27,10 @@ pub struct Retiree {
     pub social_security_age: u32,
     // the monthly benefit at full retirement age from the SSA web site (the
     // primary insurance amount). Benefits at other ages are calculated from it.
-    pub social_security_amount_full: f64,
+    // Optional: left out, it's estimated from the salary. Use
+    // social_security_full() for the amount to simulate with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub social_security_amount_full: Option<f64>,
     pub pension_age: u32,
     pub pension_monthly_income: f64,
     // the pension's annual cost-of-living increase (percent). None means it
@@ -35,6 +38,20 @@ pub struct Retiree {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pension_cola_percent: Option<f64>,
     pub other_monthly_retirement_income: f64,
+}
+
+impl Retiree {
+    // the monthly social security benefit at full retirement age: the
+    // amount entered, or else estimated from the salary
+    pub fn social_security_full(&self) -> f64 {
+        self.social_security_amount_full.unwrap_or_else(|| {
+            social_security::estimate_full_amount(self.salary_annual, self.retirement_age)
+        })
+    }
+
+    pub fn social_security_is_estimated(&self) -> bool {
+        self.social_security_amount_full.is_none()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,13 +206,22 @@ fn validate_retiree(retiree: &Retiree, start_date: &NaiveDate) -> Result<(), Str
             retiree.other_monthly_retirement_income,
             "other_monthly_retirement_income",
         ),
-        (
-            retiree.social_security_amount_full,
-            "social_security_amount_full",
-        ),
     ];
     for (amount, field) in amounts {
         check_amount(amount, &format!("{name}: {field}"))?;
+    }
+    match retiree.social_security_amount_full {
+        Some(amount) => check_amount(amount, &format!("{name}: social_security_amount_full"))?,
+        // never estimate 0 without saying so, e.g. for someone already
+        // retired
+        None if retiree.social_security_full() == 0.0 => {
+            return Err(format!(
+                "{name}: social_security_amount_full can't be estimated without \
+                 wage_annual_salary; enter the amount from the social security web \
+                 site, or 0.0 if there is none"
+            ))
+        }
+        None => {}
     }
     if let Some(cola) = retiree.pension_cola_percent {
         check_range(
@@ -776,7 +802,9 @@ mod tests {
     #[test]
     fn test_parse_social_security() {
         let input = parse_sample();
-        assert_eq!(input.retirees[0].social_security_amount_full, 3870.0);
+        assert_eq!(input.retirees[0].social_security_amount_full, Some(3870.0));
+        assert_eq!(input.retirees[0].social_security_full(), 3870.0);
+        assert!(!input.retirees[0].social_security_is_estimated());
         assert_eq!(input.retirees[0].social_security_age, 67);
 
         let err = parse_modified_sample("social_security_age: 67", "social_security_age: 61")
@@ -791,6 +819,42 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("social_security_amount_full"), "{err}");
+    }
+
+    #[test]
+    fn test_social_security_estimated_when_left_out() {
+        // John Doe earns $75,000 and retires at 67
+        let input = parse_modified_sample("social_security_amount_full: 3870.0", "").unwrap();
+        let john = &input.retirees[0];
+        assert!(john.social_security_is_estimated());
+        assert_eq!(john.social_security_full(), 2777.2);
+
+        // the estimate isn't saved, so it follows changes to the salary.
+        // Only Jane Doe's amount is written.
+        let saved = input.to_yaml().unwrap();
+        assert_eq!(saved.matches("social_security_amount_full").count(), 1);
+        let reread = Input::from_yaml(&saved, start_date()).unwrap();
+        assert!(reread.retirees[0].social_security_is_estimated());
+    }
+
+    #[test]
+    fn test_social_security_needs_a_salary_to_estimate() {
+        let err = validate_modified(|input| {
+            input.retirees[0].social_security_amount_full = None;
+            input.retirees[0].salary_annual = 0.0;
+        })
+        .unwrap_err();
+        assert!(
+            err.contains("John Doe: social_security_amount_full can't be estimated"),
+            "{err}"
+        );
+        // an amount entered is used as it is, including 0 for someone who
+        // never worked
+        validate_modified(|input| {
+            input.retirees[0].social_security_amount_full = Some(0.0);
+            input.retirees[0].salary_annual = 0.0;
+        })
+        .unwrap();
     }
 
     #[test]

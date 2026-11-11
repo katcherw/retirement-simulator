@@ -22,6 +22,17 @@
 *
 * Ages are whole months. Benefits are in today's dollars, so cost of living
 * adjustments are already accounted for.
+*
+* When a plan leaves out the PIA, it's estimated from the retiree's salary
+* with SSA's benefit formula (estimate_full_amount).
+*
+* The amounts set each year (the earnings test limits, the benefit formula
+* and the maximum taxable earnings) are the 2027 values, from SSA's notice
+* "Cost-of-Living Increase and Other Determinations for 2027", Federal
+* Register document 2026-21796, October 26, 2026
+* (https://www.federalregister.gov/documents/2026/10/26/2026-21796). They
+* rise with average wages, so they're treated as constant in today's
+* dollars.
 **************************************************************************/
 
 use chrono::{Datelike, Months, NaiveDate};
@@ -35,11 +46,43 @@ const MAX_SURVIVOR_REDUCTION: f64 = 0.285;
 // if the deceased claimed early, the survivor receives at least this
 // fraction of the deceased's PIA (the "widow(er)'s limit")
 const SURVIVOR_MINIMUM_OF_PIA: f64 = 0.825;
-// the earnings test: wages above these amounts withhold benefits before FRA.
-// 2026 values. They rise with average wages, so they're treated as constant
-// in today's dollars.
-const ANNUAL_EXEMPT_AMOUNT: f64 = 24_480.0;
-const FRA_YEAR_EXEMPT_AMOUNT: f64 = 65_160.0;
+// the earnings test: wages above these amounts withhold benefits before FRA
+const ANNUAL_EXEMPT_AMOUNT: f64 = 25_560.0;
+const FRA_YEAR_EXEMPT_AMOUNT: f64 = 67_920.0;
+
+// the benefit formula: the PIA is 90% of average indexed monthly earnings
+// up to the first bend point, 32% up to the second, and 15% above it,
+// rounded down to the next lower 10 cents
+const BEND_POINTS: [f64; 2] = [1_340.0, 8_077.0];
+const FORMULA_PERCENTS: [f64; 3] = [90.0, 32.0, 15.0];
+// earnings above this aren't taxed, and don't count toward benefits
+const MAX_TAXABLE_EARNINGS: f64 = 192_300.0;
+// the average is over the 35 years of highest earnings
+const YEARS_COUNTED: u32 = 35;
+// the estimate assumes work from this age until retiring
+const CAREER_START_AGE: u32 = 22;
+
+// estimates the PIA (the monthly benefit at full retirement age, in today's
+// dollars) of someone who earned annual_salary, in today's dollars, every
+// year from 22 until retirement_age. Rough: most people earned less early
+// in their careers, so for them it's too high, and gaps in work aren't
+// counted. Years short of 35 count as zero, as SSA counts them.
+pub fn estimate_full_amount(annual_salary: f64, retirement_age: u32) -> f64 {
+    let years = retirement_age
+        .saturating_sub(CAREER_START_AGE)
+        .min(YEARS_COUNTED);
+    let earnings = annual_salary.clamp(0.0, MAX_TAXABLE_EARNINGS);
+    // SSA rounds the average down to the dollar
+    let average = (earnings * years as f64 / YEARS_COUNTED as f64 / 12.0).floor();
+    let [low, high] = BEND_POINTS;
+    let [first, second, third] = FORMULA_PERCENTS.map(|percent| percent / 100.0);
+    let pia = first * average.min(low)
+        + second * (average.min(high) - low).max(0.0)
+        + third * (average - high).max(0.0);
+    // down to 10 cents; the small amount added keeps a result like 2777.2,
+    // stored as 2777.1999..., from losing 10 cents
+    ((pia * 10.0) + 1e-6).floor() / 10.0
+}
 
 // a retiree, as far as social security is concerned
 #[derive(Debug, Clone)]
@@ -740,18 +783,18 @@ mod tests {
     #[test]
     fn test_earnings_test_withholds_part_of_each_year() {
         // claims at 62 (June 2024, $2100) while earning $60,000 until 65
-        // (June 2027). Each full year withholds (60,000 - 24,480) / 2 =
-        // $17,760, from January on.
+        // (June 2027). Each full year withholds (60,000 - 25,560) / 2 =
+        // $17,220, from January on.
         let h = household(&[working(person(3000.0, 62), 60000.0, 65)]);
         // 2024: only June to December are benefit months, all withheld
         assert_eq!(h.monthly_total(&date(2024, 12, 15)), 0.0);
-        // 2025: 8 months withheld, and $960 of September
+        // 2025: 8 months withheld, and $420 of September
         assert_eq!(h.monthly_total(&date(2025, 8, 15)), 0.0);
-        assert_close(h.monthly_total(&date(2025, 9, 15)), 2100.0 - 960.0);
+        assert_close(h.monthly_total(&date(2025, 9, 15)), 2100.0 - 420.0);
         assert_close(h.monthly_total(&date(2025, 10, 15)), 2100.0);
-        // 2027: wages of $30,000 (January to June) withhold $2,760
+        // 2027: wages of $30,000 (January to June) withhold $2,220
         assert_eq!(h.monthly_total(&date(2027, 1, 15)), 0.0);
-        assert_close(h.monthly_total(&date(2027, 2, 15)), 2100.0 - 660.0);
+        assert_close(h.monthly_total(&date(2027, 2, 15)), 2100.0 - 120.0);
         assert_close(h.monthly_total(&date(2027, 7, 15)), 2100.0);
         assert_close(h.monthly_total(&date(2029, 5, 15)), 2100.0);
         // at FRA, recalculated for the 7 + 8 + 8 + 1 = 24 months withheld,
@@ -775,15 +818,14 @@ mod tests {
     fn test_earnings_test_in_fra_year() {
         // claims at 66 ($2800) and works past FRA at $180,000. 2028 is all
         // withheld. In 2029, only January to May wages count: (75,000 -
-        // 65,160) / 3 = $3,280.
+        // 67,920) / 3 = $2,360.
         let h = household(&[working(person(3000.0, 66), 180000.0, 68)]);
         assert_eq!(h.monthly_total(&date(2028, 12, 15)), 0.0);
-        assert_eq!(h.monthly_total(&date(2029, 1, 15)), 0.0);
-        assert_close(h.monthly_total(&date(2029, 2, 15)), 2800.0 - 480.0);
-        assert_close(h.monthly_total(&date(2029, 3, 15)), 2800.0);
+        assert_close(h.monthly_total(&date(2029, 1, 15)), 2800.0 - 2360.0);
+        assert_close(h.monthly_total(&date(2029, 2, 15)), 2800.0);
         // no test from FRA on, even while still working. Recalculated for
-        // 8 months withheld: as if claimed at 66 and 8 months.
-        let factor = 1.0 - 4.0 * 5.0 / 900.0;
+        // the 7 whole months withheld: as if claimed at 66 and 7 months.
+        let factor = 1.0 - 5.0 * 5.0 / 900.0;
         assert_close(h.monthly_total(&date(2029, 6, 15)), 3000.0 * factor);
     }
 
@@ -816,5 +858,30 @@ mod tests {
         let h = household(&[worker, person(0.0, 67)]);
         let factor = 1.0 - 23.0 * 5.0 / 900.0;
         assert_close(h.monthly_total(&at_age(67)), 3000.0 * factor);
+    }
+
+    #[test]
+    fn test_estimate_full_amount() {
+        // $75,000 for 45 years: the 35 highest average $6,250 a month,
+        // 90% of $1,340 + 32% of $4,910
+        assert_eq!(estimate_full_amount(75_000.0, 67), 2777.2);
+        // exactly the first bend point: 90% of $1,340
+        assert_eq!(estimate_full_amount(1_340.0 * 12.0, 67), 1206.0);
+        // earnings above the maximum don't count: 90% of $1,340 + 32% of
+        // $6,737 + 15% of $7,948 = $4,554.04, rounded down to 10 cents
+        assert_eq!(estimate_full_amount(192_300.0, 67), 4554.0);
+        assert_eq!(estimate_full_amount(1_000_000.0, 67), 4554.0);
+        assert_eq!(estimate_full_amount(0.0, 67), 0.0);
+    }
+
+    #[test]
+    fn test_estimate_counts_missing_years_as_zero() {
+        // retiring at 50 is 28 years of 35: $75,000 * 28 / 35 averages
+        // $5,000 a month, 90% of $1,340 + 32% of $3,660
+        assert_eq!(estimate_full_amount(75_000.0, 50), 2377.2);
+        // retiring at 57 or later counts the full 35 years
+        assert_eq!(estimate_full_amount(75_000.0, 57), 2777.2);
+        assert_eq!(estimate_full_amount(75_000.0, 22), 0.0);
+        assert_eq!(estimate_full_amount(75_000.0, 18), 0.0);
     }
 }

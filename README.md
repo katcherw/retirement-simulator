@@ -118,9 +118,16 @@ your earnings history. To get it, go to the [Social Security Administration
 web site](https://www.ssa.gov/myaccount), create an account, and enter the
 amount reported for your full retirement age.
 
+If you leave it out, it's estimated from `wage_annual_salary` with the Social
+Security benefit formula, assuming you earned the same salary (in today's
+dollars) every year from age 22 until `retirement_age`. The estimate is rough,
+so use the amount from the Social Security web site when you can. The program
+prints the estimate when it runs. A salary of 0 can't be estimated from, so
+someone already retired enters the amount.
+
 | Value                       | Description |
 | ---                         | ---         |
-| social_security_amount_full | Monthly benefit at full retirement age. Enter 0.0 for a spouse who never worked: their spousal and survivor benefits come from the other retiree's amount. |
+| social_security_amount_full | Monthly benefit at full retirement age. Enter 0.0 for a spouse who never worked: their spousal and survivor benefits come from the other retiree's amount. Optional: left out, it's estimated from the salary. |
 
 The benefits are then calculated from the full amounts:
 - **Your own benefit** at `social_security_age`: reduced if you claim before
@@ -416,12 +423,20 @@ credits, spousal benefits, and survivor benefits. Claiming ages are whole
 years. A survivor is assumed to start the survivor benefit when the spouse
 dies, but not before the earlier of their own `social_security_age` and their
 survivor full retirement age. The full amount reported by the SSA assumes you
-keep working until you claim. The earnings test limits are the 2026 amounts,
+keep working until you claim. The earnings test limits are the 2027 amounts,
 and are kept the same in today's dollars. The earnings test withholds exactly the
 amount owed, ending with part of a month; SSA withholds whole monthly checks
 and refunds the difference the next year. The government
 pension offset, the lump-sum death payment, and benefits for children are not
 modelled.
+
+**Social security estimate.** When `social_security_amount_full` is left out,
+the estimate assumes the same salary in today's dollars every year from 22
+until retiring, counting the best 35 years and earnings up to the 2027
+maximum taxable amount ($192,300). Most people earned less early in their
+careers, so for them it's too high, and gaps in work aren't counted. The 2027
+benefit formula is kept the same in today's dollars; wages have usually grown
+faster than prices, so for younger people the estimate is a little low.
 
 **Income tax.** All income other than social security (including what is
 withdrawn from `pre_tax_balance`, and bond interest in the taxable account) is

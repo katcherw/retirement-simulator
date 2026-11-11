@@ -126,7 +126,8 @@ mod tests {
             salary_annual: 80_000.0,
             retirement_contribution_percent: defaults.retirement_contribution_percent,
             social_security_age: defaults.social_security_age,
-            social_security_amount_full: 0.0,
+            // estimated from the salary
+            social_security_amount_full: None,
             pension_age: 0,
             pension_monthly_income: 0.0,
             pension_cola_percent: None,
