@@ -4,7 +4,7 @@
 * Performs the simulation of a retirement scenario
 **************************************************************************/
 
-use crate::portfolio::{Accounts, WithdrawalIncome};
+use crate::portfolio::{Accounts, Forecasts, WithdrawalIncome};
 use crate::rmd;
 use crate::social_security::{self, HouseholdBenefits};
 use crate::utils::*;
@@ -189,6 +189,8 @@ pub struct Simulation<'a> {
     pub simulation_results_: SimulationResults,
 
     input_: &'a Input,
+    // the plan's forecasts with the built-in ones for the rest
+    forecasts_: Forecasts,
     current_date_: NaiveDate,
     accounts_: Accounts,
     social_security_: HouseholdBenefits,
@@ -256,6 +258,7 @@ impl<'a> Simulation<'a> {
         Ok(Self {
             simulation_results_: simulation_results,
             input_: input,
+            forecasts_: input.portfolio.forecasts(),
             current_date_: current_date,
             accounts_: input.portfolio.accounts(),
             social_security_: HouseholdBenefits::new(&people),
@@ -349,7 +352,7 @@ impl<'a> Simulation<'a> {
         let allocation = self.input_.portfolio.allocation(household_retired);
         let (interest, dividends) = self
             .accounts_
-            .investment_income(allocation, &self.input_.portfolio.forecasts);
+            .investment_income(allocation, &self.forecasts_);
         self.accounts_.reinvest(interest + dividends);
         taxable_income += interest;
 
@@ -481,15 +484,13 @@ impl<'a> Simulation<'a> {
 
 pub fn run_simulation(input: &Input) -> Result<SimulationResults, String> {
     let mut simulation = Simulation::new(input)?;
+    let forecasts = input.portfolio.forecasts();
 
     loop {
         let is_finished = simulation.run_simulation_one_month(
-            input.portfolio.forecasts.us_equity_expected_returns,
-            input
-                .portfolio
-                .forecasts
-                .international_equity_expected_returns,
-            input.portfolio.forecasts.bonds_expected_returns,
+            forecasts.us_equity_expected_returns,
+            forecasts.international_equity_expected_returns,
+            forecasts.bonds_expected_returns,
             input.tax_rates.expected_inflation,
         )?;
 
@@ -641,13 +642,13 @@ mod tests {
                 taxable_cost_basis: None,
                 pre_retirement_allocation: all_bonds,
                 post_retirement_allocation: all_bonds,
-                forecasts: crate::portfolio::Forecasts {
-                    us_equity_expected_returns: 0.0,
-                    international_equity_expected_returns: 0.0,
-                    bonds_expected_returns: 0.0,
-                    us_equity_dividend_yield: 0.0,
-                    international_equity_dividend_yield: 0.0,
-                    bonds_interest_yield: 0.0,
+                forecasts: crate::portfolio::ForecastChoices {
+                    us_equity_expected_returns: Some(0.0),
+                    international_equity_expected_returns: Some(0.0),
+                    bonds_expected_returns: Some(0.0),
+                    us_equity_dividend_yield: Some(0.0),
+                    international_equity_dividend_yield: Some(0.0),
+                    bonds_interest_yield: Some(0.0),
                     ..Default::default()
                 },
             },
@@ -998,8 +999,8 @@ mod tests {
         input.portfolio.pre_retirement_allocation.bonds = 50.0;
         input.portfolio.pre_retirement_allocation.us_equities = 50.0;
         input.portfolio.post_retirement_allocation = input.portfolio.pre_retirement_allocation;
-        input.portfolio.forecasts.bonds_interest_yield = 4.0;
-        input.portfolio.forecasts.us_equity_dividend_yield = 2.0;
+        input.portfolio.forecasts.bonds_interest_yield = Some(4.0);
+        input.portfolio.forecasts.us_equity_dividend_yield = Some(2.0);
         let results = run_simulation(&input).unwrap();
         let first = &results.monthly_snapshot[0];
         assert!((first.taxes - 35.0).abs() < 0.01, "{}", first.taxes);

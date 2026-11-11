@@ -42,16 +42,17 @@ pub struct Portfolio {
     pub pre_retirement_allocation: Allocation,
     pub post_retirement_allocation: Allocation,
 
-    // optional: left out, the built-in forecasts are used
-    #[serde(default)]
-    pub forecasts: Forecasts,
+    // optional: left out, the built-in forecasts are used. Use forecasts()
+    // for the values to simulate with.
+    #[serde(default, skip_serializing_if = "ForecastChoices::is_empty")]
+    pub forecasts: ForecastChoices,
 }
 
 // forecasts for each asset class: real (after inflation) geometric average
-// returns and standard deviations, as percentages. Each value is optional:
-// left out, it comes from the defaults module.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+// returns and standard deviations, as percentages. The complete set the
+// simulations use; the default is the built-in forecasts from the defaults
+// module.
+#[derive(Debug, Clone, Copy, Serialize)]
 pub struct Forecasts {
     pub us_equity_expected_returns: f64,
     pub us_equity_standard_deviation: f64,
@@ -94,7 +95,95 @@ impl Default for Forecasts {
     }
 }
 
+// the forecasts a plan gives. Each is optional: one left out uses the
+// built-in forecast, and isn't written when the plan is saved, so a saved
+// plan follows the built-in forecasts when they're updated and keeps only
+// the values the person chose.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForecastChoices {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub us_equity_expected_returns: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub us_equity_standard_deviation: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub international_equity_expected_returns: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub international_equity_standard_deviation: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bonds_expected_returns: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bonds_standard_deviation: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub us_international_correlation: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub us_bonds_correlation: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub international_bonds_correlation: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub us_equity_dividend_yield: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub international_equity_dividend_yield: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bonds_interest_yield: Option<f64>,
+}
+
+impl ForecastChoices {
+    pub fn is_empty(&self) -> bool {
+        *self == ForecastChoices::default()
+    }
+
+    // the forecasts to simulate with: the plan's, and the built-in ones for
+    // the rest
+    pub fn resolve(&self) -> Forecasts {
+        let built_in = Forecasts::default();
+        Forecasts {
+            us_equity_expected_returns: self
+                .us_equity_expected_returns
+                .unwrap_or(built_in.us_equity_expected_returns),
+            us_equity_standard_deviation: self
+                .us_equity_standard_deviation
+                .unwrap_or(built_in.us_equity_standard_deviation),
+            international_equity_expected_returns: self
+                .international_equity_expected_returns
+                .unwrap_or(built_in.international_equity_expected_returns),
+            international_equity_standard_deviation: self
+                .international_equity_standard_deviation
+                .unwrap_or(built_in.international_equity_standard_deviation),
+            bonds_expected_returns: self
+                .bonds_expected_returns
+                .unwrap_or(built_in.bonds_expected_returns),
+            bonds_standard_deviation: self
+                .bonds_standard_deviation
+                .unwrap_or(built_in.bonds_standard_deviation),
+            us_international_correlation: self
+                .us_international_correlation
+                .unwrap_or(built_in.us_international_correlation),
+            us_bonds_correlation: self
+                .us_bonds_correlation
+                .unwrap_or(built_in.us_bonds_correlation),
+            international_bonds_correlation: self
+                .international_bonds_correlation
+                .unwrap_or(built_in.international_bonds_correlation),
+            us_equity_dividend_yield: self
+                .us_equity_dividend_yield
+                .unwrap_or(built_in.us_equity_dividend_yield),
+            international_equity_dividend_yield: self
+                .international_equity_dividend_yield
+                .unwrap_or(built_in.international_equity_dividend_yield),
+            bonds_interest_yield: self
+                .bonds_interest_yield
+                .unwrap_or(built_in.bonds_interest_yield),
+        }
+    }
+}
+
 impl Portfolio {
+    // the forecasts to simulate with
+    pub fn forecasts(&self) -> Forecasts {
+        self.forecasts.resolve()
+    }
+
     // the accounts at the start of a simulation
     pub fn accounts(&self) -> Accounts {
         Accounts {
@@ -371,7 +460,7 @@ mod tests {
             taxable_cost_basis: None,
             pre_retirement_allocation: ALLOCATION,
             post_retirement_allocation: ALLOCATION,
-            forecasts: Forecasts::default(),
+            forecasts: ForecastChoices::default(),
         };
         assert_eq!(portfolio.accounts().taxable_basis, 500.0);
         portfolio.taxable_cost_basis = Some(200.0);

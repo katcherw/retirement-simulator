@@ -107,7 +107,7 @@ pub fn plan_defaults() -> PlanDefaults {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::portfolio::{Forecasts, Portfolio};
+    use crate::portfolio::{ForecastChoices, Portfolio};
     use crate::{runner, Expenses, Input, Retiree, TaxRates};
     use chrono::NaiveDate;
 
@@ -150,7 +150,7 @@ mod tests {
                 taxable_cost_basis: None,
                 pre_retirement_allocation: defaults.pre_retirement_allocation,
                 post_retirement_allocation: defaults.post_retirement_allocation,
-                forecasts: Forecasts::default(),
+                forecasts: ForecastChoices::default(),
             },
             expenses: Expenses {
                 monthly,

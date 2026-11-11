@@ -134,7 +134,7 @@ impl Input {
             &portfolio.post_retirement_allocation,
             "post_retirement_allocation",
         )?;
-        validate_forecasts(&portfolio.forecasts)?;
+        validate_forecasts(&portfolio.forecasts())?;
 
         check_amount(self.expenses.monthly, "expenses monthly")?;
         check_percent(self.expenses.survivor_percent, "expenses survivor_percent")?;
@@ -342,6 +342,12 @@ mod tests {
     fn parse_modified_sample(from: &str, to: &str) -> Result<Input, String> {
         let sample = sample();
         assert!(sample.contains(from), "sample input doesn't contain {from}");
+        // changing a commented-out line would change nothing
+        let line = sample.lines().find(|line| line.contains(from)).unwrap();
+        assert!(
+            !line.trim_start().starts_with('#'),
+            "{from} is commented out"
+        );
         Input::from_yaml(&sample.replacen(from, to, 1), start_date())
     }
 
@@ -368,47 +374,99 @@ mod tests {
         assert!(!input.to_yaml().unwrap().contains("tax_rates"));
     }
 
-    // the sample input without the optional forecasts block
-    fn minimal_sample() -> String {
-        let forecasts = [
-            "forecasts:",
-            "_expected_returns:",
-            "_standard_deviation:",
-            "_correlation:",
-            "_yield:",
-            "income paid each year",
-        ];
-        let sample = sample();
-        let lines: Vec<&str> = sample
+    // the sample input with its commented-out forecasts block turned on
+    fn sample_with_forecasts() -> String {
+        let mut in_block = false;
+        let lines: Vec<String> = sample()
             .lines()
-            .filter(|line| !forecasts.iter().any(|name| line.contains(name)))
+            .map(|line| {
+                if line == "    # forecasts:" {
+                    in_block = true;
+                } else if !line.starts_with("    #") {
+                    in_block = false;
+                }
+                // "    #     name: value" becomes "        name: value"
+                match line.strip_prefix("    #") {
+                    Some(rest) if in_block => {
+                        format!("    {}", rest.strip_prefix(' ').unwrap_or(rest))
+                    }
+                    _ => line.to_string(),
+                }
+            })
             .collect();
         lines.join("\n")
     }
 
+    // the sample input with its forecasts turned on and one piece of text
+    // in them replaced
+    fn parse_modified_forecasts(from: &str, to: &str) -> Result<Input, String> {
+        let sample = sample_with_forecasts();
+        assert!(
+            sample.contains(from),
+            "sample forecasts don't contain {from}"
+        );
+        Input::from_yaml(&sample.replacen(from, to, 1), start_date())
+    }
+
+    fn yaml(forecasts: &Forecasts) -> String {
+        serde_yaml_ng::to_string(forecasts).unwrap()
+    }
+
     #[test]
-    fn test_defaults_match_sample() {
-        // the sample input spells out the defaults, so leaving them out
-        // gives the same plan
-        let minimal = minimal_sample();
-        assert!(!minimal.contains("bonds_standard_deviation:"), "{minimal}");
-        let input = Input::from_yaml(&minimal, start_date()).unwrap();
-        assert_eq!(input.to_yaml().unwrap(), parse_sample().to_yaml().unwrap());
+    fn test_sample_shows_the_built_in_forecasts() {
+        // the sample leaves the forecasts out, so it uses the built-in ones
+        let input = parse_sample();
+        assert!(input.portfolio.forecasts.is_empty());
+        assert_eq!(
+            yaml(&input.portfolio.forecasts()),
+            yaml(&Forecasts::default())
+        );
+
+        // and its commented-out block shows them all
+        let input = Input::from_yaml(&sample_with_forecasts(), start_date()).unwrap();
+        let saved = input.to_yaml().unwrap();
+        for name in ["us_equity_expected_returns", "bonds_interest_yield"] {
+            assert!(saved.contains(name), "{saved}");
+        }
+        assert_eq!(
+            yaml(&input.portfolio.forecasts()),
+            yaml(&Forecasts::default())
+        );
+    }
+
+    #[test]
+    fn test_forecasts_left_out_are_not_saved() {
+        // otherwise a saved plan would keep this year's built-in forecasts
+        let saved = parse_sample().to_yaml().unwrap();
+        assert!(!saved.contains("forecasts"), "{saved}");
+        let reread = Input::from_yaml(&saved, start_date()).unwrap();
+        assert!(reread.portfolio.forecasts.is_empty());
+
+        // a full block is kept as it is
+        let input = Input::from_yaml(&sample_with_forecasts(), start_date()).unwrap();
+        let saved = input.to_yaml().unwrap();
+        let reread = Input::from_yaml(&saved, start_date()).unwrap();
+        assert_eq!(reread.portfolio.forecasts, input.portfolio.forecasts);
+        assert_eq!(reread.to_yaml().unwrap(), saved);
     }
 
     #[test]
     fn test_override_one_default() {
-        let minimal = minimal_sample().replace(
+        let input = parse_modified_sample(
             "international: 24.0",
             "international: 24.0\n    forecasts:\n        bonds_expected_returns: 1.0",
-        );
-        let input = Input::from_yaml(&minimal, start_date()).unwrap();
-        let forecasts = &input.portfolio.forecasts;
+        )
+        .unwrap();
+        let forecasts = input.portfolio.forecasts();
         assert_eq!(forecasts.bonds_expected_returns, 1.0);
         assert_eq!(
             forecasts.bonds_standard_deviation,
             defaults::BONDS_STANDARD_DEVIATION
         );
+        // only the value given is saved
+        let saved = input.to_yaml().unwrap();
+        assert!(saved.contains("bonds_expected_returns: 1.0"), "{saved}");
+        assert!(!saved.contains("bonds_standard_deviation"), "{saved}");
     }
 
     #[test]
@@ -454,12 +512,12 @@ mod tests {
 
     #[test]
     fn test_parse_correlations() {
-        let input = parse_modified_sample(
+        let input = parse_modified_forecasts(
             "us_international_correlation: 0.8",
             "us_international_correlation: 0.7",
         )
         .unwrap();
-        let forecasts = &input.portfolio.forecasts;
+        let forecasts = input.portfolio.forecasts();
         assert_eq!(forecasts.us_international_correlation, 0.7);
         assert_eq!(forecasts.us_bonds_correlation, 0.3);
         assert_eq!(forecasts.international_bonds_correlation, 0.3);
@@ -467,30 +525,31 @@ mod tests {
 
     #[test]
     fn test_each_correlation_has_a_default() {
-        let input = parse_modified_sample(
+        let input = parse_modified_forecasts(
             "us_international_correlation: 0.8",
             "us_bonds_correlation: 0.1",
         );
         // the sample now has us_bonds_correlation twice
         assert!(input.unwrap_err().contains("duplicate"));
 
-        let input = parse_modified_sample("us_international_correlation: 0.8", "").unwrap();
+        let input = parse_modified_forecasts("us_international_correlation: 0.8", "").unwrap();
         assert_eq!(
-            input.portfolio.forecasts.us_international_correlation,
+            input.portfolio.forecasts().us_international_correlation,
             defaults::US_INTERNATIONAL_CORRELATION
         );
     }
 
     #[test]
     fn test_parse_rejects_inconsistent_correlations() {
-        let err = parse_modified_sample("us_bonds_correlation: 0.3", "us_bonds_correlation: -0.9")
-            .unwrap_err();
+        let err =
+            parse_modified_forecasts("us_bonds_correlation: 0.3", "us_bonds_correlation: -0.9")
+                .unwrap_err();
         assert!(err.contains("inconsistent"), "{err}");
     }
 
     #[test]
     fn test_parse_rejects_negative_standard_deviation() {
-        let err = parse_modified_sample(
+        let err = parse_modified_forecasts(
             "bonds_standard_deviation: 6.0",
             "bonds_standard_deviation: -6.0",
         )
@@ -613,7 +672,7 @@ mod tests {
 
     #[test]
     fn test_validation_limits_expected_returns() {
-        let err = parse_modified_sample(
+        let err = parse_modified_forecasts(
             "bonds_expected_returns: 2.5",
             "bonds_expected_returns: -100.0",
         )
@@ -622,13 +681,13 @@ mod tests {
             err.contains("bonds_expected_returns must be between"),
             "{err}"
         );
-        let err = parse_modified_sample(
+        let err = parse_modified_forecasts(
             "us_equity_expected_returns: 3.2",
             "us_equity_expected_returns: 1000.0",
         )
         .unwrap_err();
         assert!(err.contains("us_equity_expected_returns"), "{err}");
-        parse_modified_sample(
+        parse_modified_forecasts(
             "bonds_expected_returns: 2.5",
             "bonds_expected_returns: -3.0",
         )
@@ -637,7 +696,7 @@ mod tests {
 
     #[test]
     fn test_validation_limits_standard_deviations() {
-        let err = parse_modified_sample(
+        let err = parse_modified_forecasts(
             "bonds_standard_deviation: 6.0",
             "bonds_standard_deviation: 500.0",
         )
@@ -703,7 +762,7 @@ mod tests {
             ("us_bonds_correlation: 0.3", "us_bonds_correlation: .nan"),
         ] {
             assert!(
-                parse_modified_sample(from, to).is_err(),
+                parse_modified_forecasts(from, to).is_err(),
                 "{to} was accepted"
             );
         }
@@ -787,7 +846,7 @@ mod tests {
     #[test]
     fn test_validation_limits_yields() {
         let err = validate_modified(|input| {
-            input.portfolio.forecasts.bonds_interest_yield = 25.0;
+            input.portfolio.forecasts.bonds_interest_yield = Some(25.0);
         })
         .unwrap_err();
         assert!(
@@ -795,7 +854,7 @@ mod tests {
             "{err}"
         );
         let err = validate_modified(|input| {
-            input.portfolio.forecasts.us_equity_dividend_yield = -1.0;
+            input.portfolio.forecasts.us_equity_dividend_yield = Some(-1.0);
         })
         .unwrap_err();
         assert!(err.contains("us_equity_dividend_yield"), "{err}");
