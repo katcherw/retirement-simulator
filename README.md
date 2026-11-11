@@ -77,7 +77,8 @@ then they're assumed to cover expenses.
 The simulation engine is also a Rust library (`src/lib.rs`), which the command
 line program uses: `Input::from_yaml` parses and validates a plan,
 `runner::run_all` runs all the simulations, and `report::build` analyzes their
-results.
+results. `defaults::plan_defaults` gives the defaults for building a new plan,
+such as the retirement age and allocation, for programs like a web site.
 
 ## Configuration Values
 
@@ -257,7 +258,10 @@ inflation. The defaults are approximate 2026 yields of broad index funds.
 
 The expenses section is your estimated monthly expenses during retirement. A
 good way of estimating this amount is using your current take-home pay (after
-taxes, retirement contributions, benefits, etc.).
+taxes, retirement contributions, benefits, etc.). For comparison, retired
+households spend about $3,800 a month for one person and $6,400 for two, not
+counting income taxes (the national averages for ages 65 and older from the
+Bureau of Labor Statistics, in `src/defaults.rs`).
 
 | Value            | Description                                                                                                                               |
 | ---              | ---                                                                                                                                       |
