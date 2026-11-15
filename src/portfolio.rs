@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 // all values are percentages (0-100.0)
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct Allocation {
     pub us_equities: f64,
     pub international: f64,
@@ -22,6 +23,7 @@ pub struct Allocation {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct Portfolio {
     // 401(k), 403(b), traditional IRA, etc. Withdrawals are taxed as
     // ordinary income.
@@ -35,6 +37,7 @@ pub struct Portfolio {
     pub taxable_balance: f64,
     // what was paid for the taxable investments. Optional: left out, it's
     // the same as the balance (no gains yet).
+    #[cfg_attr(feature = "typescript", ts(optional))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub taxable_cost_basis: Option<f64>,
 
@@ -44,6 +47,7 @@ pub struct Portfolio {
 
     // optional: left out, the built-in forecasts are used. Use forecasts()
     // for the values to simulate with.
+    #[cfg_attr(feature = "typescript", ts(as = "Option<ForecastChoices>", optional))]
     #[serde(default, skip_serializing_if = "ForecastChoices::is_empty")]
     pub forecasts: ForecastChoices,
 }
@@ -101,6 +105,8 @@ impl Default for Forecasts {
 // the values the person chose.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
+#[cfg_attr(feature = "typescript", ts(optional_fields))]
 pub struct ForecastChoices {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub us_equity_expected_returns: Option<f64>,

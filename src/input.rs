@@ -15,8 +15,11 @@ use crate::{monte_carlo, social_security, utils};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct Retiree {
     pub name: String,
+    // mm/dd/yyyy when saved; yyyy-mm-dd is also accepted
+    #[cfg_attr(feature = "typescript", ts(type = "string"))]
     #[serde(with = "date_format")]
     pub date_of_birth: NaiveDate,
     pub retirement_age: u32,
@@ -30,12 +33,14 @@ pub struct Retiree {
     // primary insurance amount). Benefits at other ages are calculated from it.
     // Optional: left out, it's estimated from the salary. Use
     // social_security_full() for the amount to simulate with.
+    #[cfg_attr(feature = "typescript", ts(optional))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub social_security_amount_full: Option<f64>,
     pub pension_age: u32,
     pub pension_monthly_income: f64,
     // the pension's annual cost-of-living increase (percent). None means it
     // keeps up with inflation; 0 is a fixed pension.
+    #[cfg_attr(feature = "typescript", ts(optional))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pension_cola_percent: Option<f64>,
     pub other_monthly_retirement_income: f64,
@@ -57,6 +62,7 @@ impl Retiree {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct Expenses {
     pub monthly: f64,
     // percentage of expenses that remain after one spouse dies
@@ -65,6 +71,7 @@ pub struct Expenses {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct Input {
     pub retirees: Vec<Retiree>,
     pub portfolio: Portfolio,
@@ -195,6 +202,7 @@ impl Input {
 // a problem with one value in a plan, for showing beside the input it's
 // about
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct ValidationError {
     // the retiree's name, for a value that belongs to one retiree
     pub person: Option<String>,

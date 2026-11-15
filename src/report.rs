@@ -18,6 +18,7 @@ use crate::{scan, simulate, utils};
 pub const PERCENTILES: [f64; 7] = [0.0, 10.0, 25.0, 50.0, 75.0, 90.0, 100.0];
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct Report {
     pub start_date: NaiveDate,
     // simulation with the expected returns every year
@@ -28,6 +29,7 @@ pub struct Report {
 
 // one simulation, year by year
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct SimulationReport {
     // the money lasted until the end of the plan
     pub succeeded: bool,
@@ -39,6 +41,7 @@ pub struct SimulationReport {
 
 // the first month of each year of a simulation
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct YearRow {
     // years since the start of the simulation
     pub year_index: usize,
@@ -70,6 +73,7 @@ pub struct YearRow {
 
 // summary of a scan of many simulations
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct ScanSummary {
     pub num_simulations: u32,
     pub num_successful: u32,
@@ -85,12 +89,14 @@ pub struct ScanSummary {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct PercentileBalance {
     pub percentile: f64,
     pub balance: f64,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct BalanceBand {
     pub year_index: usize,
     pub date: NaiveDate,
@@ -99,6 +105,7 @@ pub struct BalanceBand {
 
 // when the money ran out, in the simulations where it did
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct Failures {
     pub count: usize,
     pub percent: f64,
@@ -108,6 +115,7 @@ pub struct Failures {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct FailurePoint {
     pub date: NaiveDate,
     // the retirees still alive then
@@ -115,12 +123,14 @@ pub struct FailurePoint {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct RetireeAge {
     pub name: String,
     pub age: u32,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct HistoricalReport {
     pub summary: ScanSummary,
     // years of historical data
@@ -133,6 +143,7 @@ pub struct HistoricalReport {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct HistoricalScenario {
     pub starting_year: u32,
     pub ending_year: u32,
@@ -143,8 +154,12 @@ pub struct HistoricalScenario {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct MonteCarloReport {
     // running again with the same seed gives the same results
+    // a number in TypeScript, which is exact for seeds up to 2^53. The
+    // command line program picks 32-bit seeds.
+    #[cfg_attr(feature = "typescript", ts(type = "number"))]
     pub seed: u64,
     pub summary: ScanSummary,
     pub worst_scenario: SimulationReport,

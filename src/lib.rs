@@ -19,6 +19,8 @@ pub mod scan;
 pub mod simulate;
 pub mod social_security;
 pub mod tax_rates;
+#[cfg(feature = "typescript")]
+pub mod typescript;
 mod utils;
 
 pub use input::{Expenses, Input, Retiree, ValidationError};

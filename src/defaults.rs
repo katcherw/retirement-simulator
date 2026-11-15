@@ -78,6 +78,7 @@ pub const SURVIVOR_PERCENT: f64 = 100.0;
 // birth, salary, savings). The forecasts aren't here: a plan leaves them out
 // to use the built-in ones, so it gets the new ones when they're updated.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "typescript", derive(ts_rs::TS))]
 pub struct PlanDefaults {
     pub retirement_age: u32,
     pub life_expectancy: u32,
