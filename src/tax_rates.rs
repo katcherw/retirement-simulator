@@ -1,9 +1,9 @@
 /**************************************************************************
-* tax_rates.rs
-*
-* Federal income tax brackets, deductions, and social security tax
-* thresholds. Update them each year.
-**************************************************************************/
+ * tax_rates.rs
+ *
+ * Federal income tax brackets, deductions, and social security tax
+ * thresholds. Update them each year.
+ **************************************************************************/
 
 // year of the tax brackets and deductions below. Brackets are adjusted for
 // inflation every year, so in today's dollars they stay about the same, and

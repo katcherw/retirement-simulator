@@ -1,8 +1,8 @@
 /**************************************************************************
-* simulate.rs
-*
-* Performs the simulation of a retirement scenario
-**************************************************************************/
+ * simulate.rs
+ *
+ * Performs the simulation of a retirement scenario
+ **************************************************************************/
 
 use crate::portfolio::{Accounts, Forecasts, WithdrawalIncome};
 use crate::rmd;

@@ -1,11 +1,11 @@
 /**************************************************************************
-* report.rs
-*
-* Analyzes the results of the simulations (success rates, percentiles, when
-* the money ran out) and collects them in a form that can be printed by the
-* command line program or sent to a web page as JSON. All amounts are in
-* today's dollars, and rates are percentages.
-**************************************************************************/
+ * report.rs
+ *
+ * Analyzes the results of the simulations (success rates, percentiles, when
+ * the money ran out) and collects them in a form that can be printed by the
+ * command line program or sent to a web page as JSON. All amounts are in
+ * today's dollars, and rates are percentages.
+ **************************************************************************/
 
 use chrono::NaiveDate;
 use serde::Serialize;

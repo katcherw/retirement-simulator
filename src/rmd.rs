@@ -1,9 +1,9 @@
 /**************************************************************************
-* rmd.rs
-*
-* Required minimum distributions from pre-tax accounts (401(k), 403(b),
-* traditional IRA)
-**************************************************************************/
+ * rmd.rs
+ *
+ * Required minimum distributions from pre-tax accounts (401(k), 403(b),
+ * traditional IRA)
+ **************************************************************************/
 
 use chrono::{Datelike, NaiveDate};
 
