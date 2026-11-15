@@ -8,6 +8,7 @@
 use chrono::NaiveDate;
 
 use crate::historical_scan::HistoricalScan;
+use crate::input::describe_first;
 use crate::monte_carlo::MonteCarloScan;
 use crate::scan::{ScanResults, Scannable};
 use crate::{simulate, Input};
@@ -27,7 +28,7 @@ pub struct RunResults {
 
 pub fn run_all(input: &Input, seed: u64) -> Result<RunResults, String> {
     // Input::from_yaml validates, but a plan built in code may not have been
-    input.validate()?;
+    input.validate().map_err(|errors| describe_first(&errors))?;
     let uniform =
         simulate::run_simulation(input).map_err(|e| format!("Error running simulation: {e}"))?;
 

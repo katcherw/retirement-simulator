@@ -21,5 +21,5 @@ pub mod social_security;
 pub mod tax_rates;
 mod utils;
 
-pub use input::{Expenses, Input, Retiree};
+pub use input::{Expenses, Input, Retiree, ValidationError};
 pub use tax_rates::{TaxLevel, TaxRates, TaxTable};

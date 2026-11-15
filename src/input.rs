@@ -7,6 +7,7 @@
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::portfolio::{Allocation, Forecasts, Portfolio};
 use crate::tax_rates::TaxRates;
@@ -106,7 +107,7 @@ impl Input {
         let mut input: Input =
             serde_yaml_ng::from_str(text).map_err(|e| explain_parse_error(text, e))?;
         input.start_date = start_date;
-        input.validate()?;
+        input.validate().map_err(|errors| describe_first(&errors))?;
         Ok(input)
     }
 
@@ -117,46 +118,133 @@ impl Input {
     }
 
     // checks that the values make sense, so the simulations can't run
-    // forever, overflow, or produce NaN balances
-    pub fn validate(&self) -> Result<(), String> {
-        if self.retirees.is_empty() || self.retirees.len() > MAX_RETIREES {
-            return Err(format!(
-                "there must be one or two retirees (currently {})",
-                self.retirees.len()
-            ));
+    // forever, overflow, or produce NaN balances. Returns every problem
+    // found, in the order of the input file.
+    pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
+        let mut errors = Errors::default();
+        let count = self.retirees.len();
+        if count == 0 || count > MAX_RETIREES {
+            errors.add(
+                None,
+                "retirees",
+                Some(format!("must list one or two people (currently {count})")),
+            );
         }
         for retiree in self.retirees.iter() {
-            validate_retiree(retiree, &self.start_date)?;
+            validate_retiree(retiree, &self.start_date, &mut errors);
         }
-        if self
-            .retirees
-            .iter()
-            .all(|r| utils::get_age(&r.date_of_birth, &self.start_date) > r.life_expectancy)
+        if !self.retirees.is_empty()
+            && self
+                .retirees
+                .iter()
+                .all(|r| utils::get_age(&r.date_of_birth, &self.start_date) > r.life_expectancy)
         {
-            return Err("every retiree is already past their life expectancy".to_string());
+            errors.add(
+                None,
+                "retirees",
+                Some("are all past their life expectancy already".to_string()),
+            );
         }
 
         let portfolio = &self.portfolio;
-        check_amount(portfolio.pre_tax_balance, "portfolio pre_tax_balance")?;
-        check_amount(portfolio.roth_balance, "portfolio roth_balance")?;
-        check_amount(portfolio.taxable_balance, "portfolio taxable_balance")?;
-        if let Some(basis) = portfolio.taxable_cost_basis {
-            check_amount(basis, "portfolio taxable_cost_basis")?;
+        let balances = [
+            (Some(portfolio.pre_tax_balance), "pre_tax_balance"),
+            (Some(portfolio.roth_balance), "roth_balance"),
+            (Some(portfolio.taxable_balance), "taxable_balance"),
+            (portfolio.taxable_cost_basis, "taxable_cost_basis"),
+        ];
+        for (balance, name) in balances {
+            if let Some(balance) = balance {
+                errors.add(None, &format!("portfolio.{name}"), amount_problem(balance));
+            }
         }
-        validate_allocation(
-            &portfolio.pre_retirement_allocation,
-            "pre_retirement_allocation",
-        )?;
-        validate_allocation(
-            &portfolio.post_retirement_allocation,
-            "post_retirement_allocation",
-        )?;
-        validate_forecasts(&portfolio.forecasts())?;
+        let allocations = [
+            (
+                &portfolio.pre_retirement_allocation,
+                "pre_retirement_allocation",
+            ),
+            (
+                &portfolio.post_retirement_allocation,
+                "post_retirement_allocation",
+            ),
+        ];
+        for (allocation, name) in allocations {
+            errors.add(
+                None,
+                &format!("portfolio.{name}"),
+                allocation_problem(allocation),
+            );
+        }
+        validate_forecasts(&portfolio.forecasts(), &mut errors);
 
-        check_amount(self.expenses.monthly, "expenses monthly")?;
-        check_percent(self.expenses.survivor_percent, "expenses survivor_percent")?;
+        errors.add(
+            None,
+            "expenses.monthly",
+            amount_problem(self.expenses.monthly),
+        );
+        errors.add(
+            None,
+            "expenses.survivor_percent",
+            percent_problem(self.expenses.survivor_percent),
+        );
 
-        Ok(())
+        errors.into_result()
+    }
+}
+
+// a problem with one value in a plan, for showing beside the input it's
+// about
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ValidationError {
+    // the retiree's name, for a value that belongs to one retiree
+    pub person: Option<String>,
+    // the field's path in the plan file: a retiree's field such as
+    // "retirement_age", or for example "expenses.monthly" or
+    // "portfolio.pre_retirement_allocation"
+    pub field: String,
+    // what's wrong, in plain words without the person or field name, such as
+    // "can't be negative"
+    pub message: String,
+}
+
+// the way the command line program shows it, for example "John Doe:
+// retirement_age can't be more than 120 (currently 121)"
+impl fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(person) = &self.person {
+            write!(f, "{person}: ")?;
+        }
+        write!(f, "{} {}", self.field, self.message)
+    }
+}
+
+// the first problem, the way the command line program shows it
+pub fn describe_first(errors: &[ValidationError]) -> String {
+    errors.first().map(|e| e.to_string()).unwrap_or_default()
+}
+
+// collects the problems found while validating
+#[derive(Default)]
+struct Errors(Vec<ValidationError>);
+
+impl Errors {
+    // adds the problem with a field, if there is one
+    fn add(&mut self, person: Option<&str>, field: &str, problem: Option<String>) {
+        if let Some(message) = problem {
+            self.0.push(ValidationError {
+                person: person.map(str::to_string),
+                field: field.to_string(),
+                message,
+            });
+        }
+    }
+
+    fn into_result(self) -> Result<(), Vec<ValidationError>> {
+        if self.0.is_empty() {
+            Ok(())
+        } else {
+            Err(self.0)
+        }
     }
 }
 
@@ -174,10 +262,12 @@ pub const MAX_STANDARD_DEVIATION: f64 = 50.0;
 pub const MAX_YIELD: f64 = 20.0;
 pub const MAX_PENSION_COLA: f64 = 20.0;
 
-fn validate_retiree(retiree: &Retiree, start_date: &NaiveDate) -> Result<(), String> {
-    let name = &retiree.name;
+fn validate_retiree(retiree: &Retiree, start_date: &NaiveDate, errors: &mut Errors) {
+    let person = Some(retiree.name.as_str());
+    let mut add = |field: &str, problem: Option<String>| errors.add(person, field, problem);
+
     if retiree.date_of_birth > *start_date {
-        return Err(format!("{name}: date_of_birth is in the future"));
+        add("date_of_birth", Some("is in the future".to_string()));
     }
     let ages = [
         (retiree.retirement_age, "retirement_age"),
@@ -187,17 +277,20 @@ fn validate_retiree(retiree: &Retiree, start_date: &NaiveDate) -> Result<(), Str
     ];
     for (age, field) in ages {
         if age > MAX_AGE {
-            return Err(format!(
-                "{name}: {field} can't be more than {MAX_AGE} (currently {age})"
-            ));
+            add(
+                field,
+                Some(format!("can't be more than {MAX_AGE} (currently {age})")),
+            );
         }
     }
     if retiree.social_security_age < MIN_SOCIAL_SECURITY_AGE {
-        return Err(format!(
-            "{name}: social_security_age must be at least {MIN_SOCIAL_SECURITY_AGE} \
-             (currently {})",
-            retiree.social_security_age
-        ));
+        add(
+            "social_security_age",
+            Some(format!(
+                "must be at least {MIN_SOCIAL_SECURITY_AGE} (currently {})",
+                retiree.social_security_age
+            )),
+        );
     }
     let amounts = [
         (retiree.salary_annual, "wage_annual_salary"),
@@ -208,62 +301,61 @@ fn validate_retiree(retiree: &Retiree, start_date: &NaiveDate) -> Result<(), Str
         ),
     ];
     for (amount, field) in amounts {
-        check_amount(amount, &format!("{name}: {field}"))?;
+        add(field, amount_problem(amount));
     }
     match retiree.social_security_amount_full {
-        Some(amount) => check_amount(amount, &format!("{name}: social_security_amount_full"))?,
+        Some(amount) => add("social_security_amount_full", amount_problem(amount)),
         // never estimate 0 without saying so, e.g. for someone already
         // retired
-        None if retiree.social_security_full() == 0.0 => {
-            return Err(format!(
-                "{name}: social_security_amount_full can't be estimated without \
-                 wage_annual_salary; enter the amount from the social security web \
-                 site, or 0.0 if there is none"
-            ))
-        }
+        None if retiree.social_security_full() == 0.0 => add(
+            "social_security_amount_full",
+            Some(
+                "can't be estimated without wage_annual_salary; enter the amount \
+                 from the social security web site, or 0.0 if there is none"
+                    .to_string(),
+            ),
+        ),
         None => {}
     }
     if let Some(cola) = retiree.pension_cola_percent {
-        check_range(
-            cola,
-            0.0,
-            MAX_PENSION_COLA,
-            &format!("{name}: pension_cola_percent"),
-        )?;
+        add(
+            "pension_cola_percent",
+            range_problem(cola, 0.0, MAX_PENSION_COLA),
+        );
     }
-    check_percent(
-        retiree.retirement_contribution_percent,
-        &format!("{name}: retirement_contribution_percent"),
-    )
+    add(
+        "retirement_contribution_percent",
+        percent_problem(retiree.retirement_contribution_percent),
+    );
 }
 
-// checks that a value is a number in the range, inclusive. NaN fails, since
-// it isn't in any range.
-fn check_range(value: f64, min: f64, max: f64, name: &str) -> Result<(), String> {
-    if (min..=max).contains(&value) {
-        Ok(())
-    } else {
-        Err(format!(
-            "{name} must be between {min} and {max} (currently {value})"
-        ))
-    }
+// the problem with a value outside the range (inclusive), if any. NaN is
+// outside every range.
+fn range_problem(value: f64, min: f64, max: f64) -> Option<String> {
+    (!(min..=max).contains(&value))
+        .then(|| format!("must be between {min} and {max} (currently {value})"))
 }
 
-fn check_amount(value: f64, name: &str) -> Result<(), String> {
+// the problem with a value that must be from 0 to max, if any
+fn positive_problem(value: f64, max: f64) -> Option<String> {
     if value < 0.0 {
-        return Err(format!("{name} can't be negative"));
+        return Some("can't be negative".to_string());
     }
-    check_range(value, 0.0, MAX_AMOUNT, name)
+    range_problem(value, 0.0, max)
 }
 
-fn check_percent(value: f64, name: &str) -> Result<(), String> {
-    if value < 0.0 {
-        return Err(format!("{name} can't be negative"));
-    }
-    check_range(value, 0.0, 100.0, name)
+fn amount_problem(value: f64) -> Option<String> {
+    positive_problem(value, MAX_AMOUNT)
 }
 
-fn validate_forecasts(forecasts: &Forecasts) -> Result<(), String> {
+fn percent_problem(value: f64) -> Option<String> {
+    positive_problem(value, 100.0)
+}
+
+fn validate_forecasts(forecasts: &Forecasts, errors: &mut Errors) {
+    let found_before = errors.0.len();
+    let field = |name: &str| format!("portfolio.forecasts.{name}");
+
     let expected_returns = [
         (
             forecasts.us_equity_expected_returns,
@@ -276,7 +368,8 @@ fn validate_forecasts(forecasts: &Forecasts) -> Result<(), String> {
         (forecasts.bonds_expected_returns, "bonds_expected_returns"),
     ];
     for (value, name) in expected_returns {
-        check_range(value, MIN_EXPECTED_RETURN, MAX_EXPECTED_RETURN, name)?;
+        let problem = range_problem(value, MIN_EXPECTED_RETURN, MAX_EXPECTED_RETURN);
+        errors.add(None, &field(name), problem);
     }
     let standard_deviations = [
         (
@@ -293,10 +386,8 @@ fn validate_forecasts(forecasts: &Forecasts) -> Result<(), String> {
         ),
     ];
     for (value, name) in standard_deviations {
-        if value < 0.0 {
-            return Err("standard deviations can't be negative".to_string());
-        }
-        check_range(value, 0.0, MAX_STANDARD_DEVIATION, name)?;
+        let problem = positive_problem(value, MAX_STANDARD_DEVIATION);
+        errors.add(None, &field(name), problem);
     }
     let yields = [
         (
@@ -310,11 +401,31 @@ fn validate_forecasts(forecasts: &Forecasts) -> Result<(), String> {
         (forecasts.bonds_interest_yield, "bonds_interest_yield"),
     ];
     for (value, name) in yields {
-        check_range(value, 0.0, MAX_YIELD, name)?;
+        errors.add(None, &field(name), positive_problem(value, MAX_YIELD));
     }
-    // checks the correlations
-    monte_carlo::ReturnsSampler::new(forecasts)?;
-    Ok(())
+    let correlations = [
+        (
+            forecasts.us_international_correlation,
+            "us_international_correlation",
+        ),
+        (forecasts.us_bonds_correlation, "us_bonds_correlation"),
+        (
+            forecasts.international_bonds_correlation,
+            "international_bonds_correlation",
+        ),
+    ];
+    for (value, name) in correlations {
+        errors.add(None, &field(name), range_problem(value, -1.0, 1.0));
+    }
+    // correlations that are each in range can still be inconsistent with
+    // each other. Checked only once everything above is fine.
+    if errors.0.len() == found_before && monte_carlo::ReturnsSampler::new(forecasts).is_err() {
+        errors.add(
+            None,
+            "portfolio.forecasts",
+            Some("has correlations that are inconsistent with each other".to_string()),
+        );
+    }
 }
 
 // a friendlier message for an empty file, otherwise serde's error, which
@@ -326,23 +437,24 @@ fn explain_parse_error(text: &str, error: serde_yaml_ng::Error) -> String {
     }
 }
 
-fn validate_allocation(allocation: &Allocation, name: &str) -> Result<(), String> {
+// the problem with an allocation's percentages, if any
+fn allocation_problem(allocation: &Allocation) -> Option<String> {
     let values = [
         allocation.us_equities,
         allocation.international,
         allocation.bonds,
     ];
     if values.iter().any(|&v| v < 0.0) {
-        return Err(format!("{name} percentages can't be negative"));
+        return Some("percentages can't be negative".to_string());
     }
     if values.iter().any(|v| !v.is_finite()) {
-        return Err(format!("{name} percentages must be numbers"));
+        return Some("percentages must be numbers".to_string());
     }
     let total: f64 = values.iter().sum();
     if (total - 100.0).abs() > 0.01 {
-        return Err(format!("{name} must add up to 100.0 (currently {total})"));
+        return Some(format!("must add up to 100.0 (currently {total})"));
     }
-    Ok(())
+    None
 }
 
 #[cfg(test)]
@@ -580,7 +692,10 @@ mod tests {
             "bonds_standard_deviation: -6.0",
         )
         .unwrap_err();
-        assert!(err.contains("standard deviation"), "{err}");
+        assert!(
+            err.contains("bonds_standard_deviation can't be negative"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -642,8 +757,14 @@ mod tests {
     }
 
     // the sample input after changing it in code, to test validation of
-    // values that are awkward to write as text
+    // values that are awkward to write as text. Returns the first problem,
+    // the way the command line program shows it.
     fn validate_modified(change: impl FnOnce(&mut Input)) -> Result<(), String> {
+        validation_errors(change).map_err(|errors| describe_first(&errors))
+    }
+
+    // every problem with the sample input after changing it in code
+    fn validation_errors(change: impl FnOnce(&mut Input)) -> Result<(), Vec<ValidationError>> {
         let mut input = parse_sample();
         change(&mut input);
         input.validate()
@@ -652,13 +773,16 @@ mod tests {
     #[test]
     fn test_validation_requires_one_or_two_retirees() {
         let err = validate_modified(|input| input.retirees.clear()).unwrap_err();
-        assert!(err.contains("one or two retirees"), "{err}");
+        assert!(
+            err.contains("retirees must list one or two people"),
+            "{err}"
+        );
         let err = validate_modified(|input| {
             let third = input.retirees[0].clone();
             input.retirees.push(third);
         })
         .unwrap_err();
-        assert!(err.contains("one or two retirees (currently 3)"), "{err}");
+        assert!(err.contains("one or two people (currently 3)"), "{err}");
         validate_modified(|input| {
             input.retirees.pop();
         })
@@ -755,10 +879,10 @@ mod tests {
     #[test]
     fn test_validation_limits_amounts() {
         let err = parse_modified_sample("monthly: 9000.0", "monthly: -1.0").unwrap_err();
-        assert!(err.contains("expenses monthly can't be negative"), "{err}");
+        assert!(err.contains("expenses.monthly can't be negative"), "{err}");
         let err = parse_modified_sample("balance: 700000.0", "balance: 1.0e300").unwrap_err();
         assert!(
-            err.contains("portfolio pre_tax_balance must be between"),
+            err.contains("portfolio.pre_tax_balance must be between"),
             "{err}"
         );
         let err = parse_modified_sample(
@@ -931,5 +1055,271 @@ mod tests {
         let late = NaiveDate::from_ymd_opt(2056, 1, 1).unwrap();
         let err = Input::from_yaml(&sample(), late).unwrap_err();
         assert!(err.contains("past their life expectancy"), "{err}");
+    }
+
+    // a change to the sample input, for tables of test cases
+    type Change = Box<dyn FnOnce(&mut Input)>;
+
+    // (person, field, message) of each problem, to compare in tests
+    fn summarize(errors: &[ValidationError]) -> Vec<(Option<&str>, &str, &str)> {
+        errors
+            .iter()
+            .map(|e| (e.person.as_deref(), e.field.as_str(), e.message.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn test_validation_errors_name_the_person_and_field() {
+        let john = Some("John Doe");
+        let cases: Vec<(Change, _)> = vec![
+            (
+                Box::new(|input: &mut Input| input.retirees.clear()),
+                (
+                    None,
+                    "retirees",
+                    "must list one or two people (currently 0)",
+                ),
+            ),
+            (
+                Box::new(|input: &mut Input| {
+                    input.retirees[0].date_of_birth = NaiveDate::from_ymd_opt(2060, 1, 1).unwrap()
+                }),
+                (john, "date_of_birth", "is in the future"),
+            ),
+            (
+                Box::new(|input: &mut Input| input.retirees[0].retirement_age = 121),
+                (
+                    john,
+                    "retirement_age",
+                    "can't be more than 120 (currently 121)",
+                ),
+            ),
+            (
+                Box::new(|input: &mut Input| input.retirees[1].social_security_age = 61),
+                (
+                    Some("Jane Doe"),
+                    "social_security_age",
+                    "must be at least 62 (currently 61)",
+                ),
+            ),
+            (
+                Box::new(|input: &mut Input| input.retirees[0].salary_annual = -1.0),
+                (john, "wage_annual_salary", "can't be negative"),
+            ),
+            (
+                Box::new(|input: &mut Input| input.retirees[0].pension_cola_percent = Some(25.0)),
+                (
+                    john,
+                    "pension_cola_percent",
+                    "must be between 0 and 20 (currently 25)",
+                ),
+            ),
+            (
+                Box::new(|input: &mut Input| {
+                    input.retirees[0].retirement_contribution_percent = 150.0
+                }),
+                (
+                    john,
+                    "retirement_contribution_percent",
+                    "must be between 0 and 100 (currently 150)",
+                ),
+            ),
+            (
+                Box::new(|input: &mut Input| input.portfolio.taxable_cost_basis = Some(-1.0)),
+                (None, "portfolio.taxable_cost_basis", "can't be negative"),
+            ),
+            (
+                Box::new(|input: &mut Input| input.portfolio.pre_retirement_allocation.bonds = 0.0),
+                (
+                    None,
+                    "portfolio.pre_retirement_allocation",
+                    "must add up to 100.0 (currently 80)",
+                ),
+            ),
+            (
+                Box::new(|input: &mut Input| {
+                    input.portfolio.forecasts.bonds_expected_returns = Some(-100.0)
+                }),
+                (
+                    None,
+                    "portfolio.forecasts.bonds_expected_returns",
+                    "must be between -50 and 50 (currently -100)",
+                ),
+            ),
+            (
+                Box::new(|input: &mut Input| {
+                    input.portfolio.forecasts.bonds_standard_deviation = Some(-6.0)
+                }),
+                (
+                    None,
+                    "portfolio.forecasts.bonds_standard_deviation",
+                    "can't be negative",
+                ),
+            ),
+            (
+                Box::new(|input: &mut Input| {
+                    input.portfolio.forecasts.us_bonds_correlation = Some(1.5)
+                }),
+                (
+                    None,
+                    "portfolio.forecasts.us_bonds_correlation",
+                    "must be between -1 and 1 (currently 1.5)",
+                ),
+            ),
+            (
+                Box::new(|input: &mut Input| {
+                    input.portfolio.forecasts.us_bonds_correlation = Some(-0.9)
+                }),
+                (
+                    None,
+                    "portfolio.forecasts",
+                    "has correlations that are inconsistent with each other",
+                ),
+            ),
+            (
+                Box::new(|input: &mut Input| input.expenses.monthly = f64::INFINITY),
+                (
+                    None,
+                    "expenses.monthly",
+                    "must be between 0 and 1000000000000 (currently inf)",
+                ),
+            ),
+        ];
+        for (change, expected) in cases {
+            let errors = validation_errors(change).unwrap_err();
+            assert_eq!(summarize(&errors), vec![expected]);
+        }
+    }
+
+    #[test]
+    fn test_validation_collects_every_problem() {
+        let errors = validation_errors(|input| {
+            input.expenses.survivor_percent = 101.0;
+            input.portfolio.roth_balance = -1.0;
+            input.retirees[1].life_expectancy = 121;
+            input.retirees[0].pension_monthly_income = f64::NAN;
+        })
+        .unwrap_err();
+        // in the order of the input file
+        assert_eq!(
+            summarize(&errors),
+            vec![
+                (
+                    Some("John Doe"),
+                    "pension_monthly_income",
+                    "must be between 0 and 1000000000000 (currently NaN)"
+                ),
+                (
+                    Some("Jane Doe"),
+                    "life_expectancy",
+                    "can't be more than 120 (currently 121)"
+                ),
+                (None, "portfolio.roth_balance", "can't be negative"),
+                (
+                    None,
+                    "expenses.survivor_percent",
+                    "must be between 0 and 100 (currently 101)"
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_inconsistent_correlations_checked_only_when_the_rest_is_fine() {
+        // the correlation check can't be trusted with a bad standard
+        // deviation, so only the standard deviation is reported
+        let errors = validation_errors(|input| {
+            input.portfolio.forecasts.us_bonds_correlation = Some(-0.9);
+            input.portfolio.forecasts.bonds_standard_deviation = Some(500.0);
+        })
+        .unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].field,
+            "portfolio.forecasts.bonds_standard_deviation"
+        );
+    }
+
+    #[test]
+    fn test_first_error_text() {
+        // the command line program shows the first problem, with the person
+        // and field in front
+        let cases: Vec<(Change, &str)> = vec![
+            (
+                Box::new(|input: &mut Input| {
+                    input.retirees[0].retirement_age = 121;
+                    input.expenses.monthly = -1.0;
+                }),
+                "John Doe: retirement_age can't be more than 120 (currently 121)",
+            ),
+            (
+                Box::new(|input: &mut Input| input.portfolio.pre_tax_balance = -1.0),
+                "portfolio.pre_tax_balance can't be negative",
+            ),
+            (
+                Box::new(|input: &mut Input| {
+                    input.portfolio.post_retirement_allocation.bonds = f64::NAN
+                }),
+                "portfolio.post_retirement_allocation percentages must be numbers",
+            ),
+            (
+                Box::new(|input: &mut Input| {
+                    input.portfolio.forecasts.bonds_interest_yield = Some(25.0)
+                }),
+                "portfolio.forecasts.bonds_interest_yield must be between 0 and 20 (currently 25)",
+            ),
+            (
+                Box::new(|input: &mut Input| {
+                    input.portfolio.forecasts.bonds_standard_deviation = Some(-6.0)
+                }),
+                "portfolio.forecasts.bonds_standard_deviation can't be negative",
+            ),
+            (
+                Box::new(|input: &mut Input| input.expenses.survivor_percent = -1.0),
+                "expenses.survivor_percent can't be negative",
+            ),
+            (
+                Box::new(|input: &mut Input| {
+                    input.retirees[0].social_security_amount_full = None;
+                    input.retirees[0].salary_annual = 0.0;
+                }),
+                "John Doe: social_security_amount_full can't be estimated without \
+                 wage_annual_salary; enter the amount from the social security web site, \
+                 or 0.0 if there is none",
+            ),
+        ];
+        for (change, expected) in cases {
+            assert_eq!(validate_modified(change).unwrap_err(), expected);
+        }
+        // and so does the runner, for a plan built in code
+        let mut input = parse_sample();
+        input.retirees.clear();
+        let err = crate::runner::run_all(&input, 42).err().unwrap();
+        assert_eq!(err, "retirees must list one or two people (currently 0)");
+    }
+
+    #[test]
+    fn test_validation_errors_as_json() {
+        let errors = validation_errors(|input| {
+            input.retirees[0].retirement_age = 121;
+            input.expenses.monthly = -1.0;
+        })
+        .unwrap_err();
+        let json = serde_json::to_value(&errors).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!([
+                {
+                    "person": "John Doe",
+                    "field": "retirement_age",
+                    "message": "can't be more than 120 (currently 121)"
+                },
+                {
+                    "person": null,
+                    "field": "expenses.monthly",
+                    "message": "can't be negative"
+                }
+            ])
+        );
     }
 }
