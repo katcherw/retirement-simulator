@@ -1,13 +1,13 @@
 /**************************************************************************
-* defaults.rs
-*
-* Built-in defaults. The market forecasts are used for any forecast a plan
-* leaves out. The plan defaults are for programs that build a plan, such as
-* a web site: they fill in what a person doesn't enter, and are kept here so
-* there is one place for every default.
-*
-* The forecasts are from Fidelity's long-term asset class assumptions
-**************************************************************************/
+ * defaults.rs
+ *
+ * Built-in defaults. The market forecasts are used for any forecast a plan
+ * leaves out. The plan defaults are for programs that build a plan, such as
+ * a web site: they fill in what a person doesn't enter, and are kept here so
+ * there is one place for every default.
+ *
+ * The forecasts are from Fidelity's long-term asset class assumptions
+ **************************************************************************/
 
 use serde::Serialize;
 

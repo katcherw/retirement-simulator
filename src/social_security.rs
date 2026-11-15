@@ -1,39 +1,39 @@
 /**************************************************************************
-* social_security.rs
-*
-* Social Security benefits for one or two retirees, from each retiree's
-* primary insurance amount (PIA): the monthly benefit at full retirement age,
-* as reported on the SSA web site.
-*
-* Each retiree can receive:
-*  - their own retirement benefit, reduced for claiming before full
-*    retirement age (FRA), or increased by delayed retirement credits for
-*    claiming after it (up to 70).
-*  - a spousal benefit while the other retiree is alive: up to half of the
-*    spouse's PIA, minus their own PIA, reduced for claiming before FRA.
-*    It starts when both have claimed, and has no delayed credits.
-*  - a survivor benefit after the other retiree dies: based on what the
-*    deceased was receiving (or was entitled to), reduced if the survivor
-*    starts it before their survivor FRA. A survivor receives the larger of
-*    their own benefit and the survivor benefit, not both.
-*
-* Benefits collected before FRA while still working are withheld by the
-* earnings test, and recalculated at FRA to credit the months withheld.
-*
-* Ages are whole months. Benefits are in today's dollars, so cost of living
-* adjustments are already accounted for.
-*
-* When a plan leaves out the PIA, it's estimated from the retiree's salary
-* with SSA's benefit formula (estimate_full_amount).
-*
-* The amounts set each year (the earnings test limits, the benefit formula
-* and the maximum taxable earnings) are the 2027 values, from SSA's notice
-* "Cost-of-Living Increase and Other Determinations for 2027", Federal
-* Register document 2026-21796, October 26, 2026
-* (https://www.federalregister.gov/documents/2026/10/26/2026-21796). They
-* rise with average wages, so they're treated as constant in today's
-* dollars.
-**************************************************************************/
+ * social_security.rs
+ *
+ * Social Security benefits for one or two retirees, from each retiree's
+ * primary insurance amount (PIA): the monthly benefit at full retirement age,
+ * as reported on the SSA web site.
+ *
+ * Each retiree can receive:
+ *  - their own retirement benefit, reduced for claiming before full
+ *    retirement age (FRA), or increased by delayed retirement credits for
+ *    claiming after it (up to 70).
+ *  - a spousal benefit while the other retiree is alive: up to half of the
+ *    spouse's PIA, minus their own PIA, reduced for claiming before FRA.
+ *    It starts when both have claimed, and has no delayed credits.
+ *  - a survivor benefit after the other retiree dies: based on what the
+ *    deceased was receiving (or was entitled to), reduced if the survivor
+ *    starts it before their survivor FRA. A survivor receives the larger of
+ *    their own benefit and the survivor benefit, not both.
+ *
+ * Benefits collected before FRA while still working are withheld by the
+ * earnings test, and recalculated at FRA to credit the months withheld.
+ *
+ * Ages are whole months. Benefits are in today's dollars, so cost of living
+ * adjustments are already accounted for.
+ *
+ * When a plan leaves out the PIA, it's estimated from the retiree's salary
+ * with SSA's benefit formula (estimate_full_amount).
+ *
+ * The amounts set each year (the earnings test limits, the benefit formula
+ * and the maximum taxable earnings) are the 2027 values, from SSA's notice
+ * "Cost-of-Living Increase and Other Determinations for 2027", Federal
+ * Register document 2026-21796, October 26, 2026
+ * (https://www.federalregister.gov/documents/2026/10/26/2026-21796). They
+ * rise with average wages, so they're treated as constant in today's
+ * dollars.
+ **************************************************************************/
 
 use chrono::{Datelike, Months, NaiveDate};
 

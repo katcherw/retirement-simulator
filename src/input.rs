@@ -1,9 +1,9 @@
 /**************************************************************************
-* input.rs
-*
-* The retirement plan entered by the user: parsed from YAML (or JSON, which
-* is a subset of YAML) and validated.
-**************************************************************************/
+ * input.rs
+ *
+ * The retirement plan entered by the user: parsed from YAML (or JSON, which
+ * is a subset of YAML) and validated.
+ **************************************************************************/
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};

@@ -1,9 +1,9 @@
 /**************************************************************************
-* retirement-simulator
-*
-* Command line program: reads the config file, runs the simulations, and
-* prints the results as text or JSON.
-**************************************************************************/
+ * retirement-simulator
+ *
+ * Command line program: reads the config file, runs the simulations, and
+ * prints the results as text or JSON.
+ **************************************************************************/
 
 use chrono::NaiveDate;
 use num_format::{Locale, ToFormattedString};

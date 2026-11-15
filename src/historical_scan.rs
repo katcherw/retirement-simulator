@@ -1,8 +1,8 @@
 /**************************************************************************
-* historical_scan.rs
-*
-* Simulate starting a retirement at every year since 1928.
-**************************************************************************/
+ * historical_scan.rs
+ *
+ * Simulate starting a retirement at every year since 1928.
+ **************************************************************************/
 
 use crate::{scan, simulate, Input};
 use std::io::BufRead;

@@ -1,8 +1,8 @@
 /**************************************************************************
-* scan.rs
-*
-* Common functions and traits for scanning a series of simulations
-**************************************************************************/
+ * scan.rs
+ *
+ * Common functions and traits for scanning a series of simulations
+ **************************************************************************/
 
 use crate::{simulate, Input};
 use chrono::NaiveDate;

@@ -1,8 +1,8 @@
 /**************************************************************************
-* monte_carlo.rs
-*
-* Run a large number of random simulations
-**************************************************************************/
+ * monte_carlo.rs
+ *
+ * Run a large number of random simulations
+ **************************************************************************/
 
 use crate::portfolio::Forecasts;
 use crate::{scan, simulate, Input};

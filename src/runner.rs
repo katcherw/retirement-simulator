@@ -1,9 +1,9 @@
 /**************************************************************************
-* runner.rs
-*
-* Runs all the simulations for a plan: uniform returns, every starting year
-* of historical returns, and the Monte Carlo simulations.
-**************************************************************************/
+ * runner.rs
+ *
+ * Runs all the simulations for a plan: uniform returns, every starting year
+ * of historical returns, and the Monte Carlo simulations.
+ **************************************************************************/
 
 use chrono::NaiveDate;
 

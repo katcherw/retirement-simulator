@@ -1,11 +1,11 @@
 /**************************************************************************
-* portfolio.rs
-*
-* The portfolio entered by the user (balances, allocations, and forecasts),
-* and the accounts tracked during a simulation: pre-tax, Roth, and taxable.
-* Right now assume an asset allocation and continuous rebalancing. Every
-* account holds the same allocation.
-**************************************************************************/
+ * portfolio.rs
+ *
+ * The portfolio entered by the user (balances, allocations, and forecasts),
+ * and the accounts tracked during a simulation: pre-tax, Roth, and taxable.
+ * Right now assume an asset allocation and continuous rebalancing. Every
+ * account holds the same allocation.
+ **************************************************************************/
 
 use crate::defaults;
 use crate::utils::*;
