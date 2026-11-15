@@ -18,8 +18,8 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --all-features --verbose
       - name: Build the library for WebAssembly
         run: cargo build --lib --target wasm32-unknown-unknown

@@ -11,8 +11,8 @@ yet.
 Every change must pass these (CI runs them too):
 
 ```
-cargo test
-cargo clippy --all-targets -- -D warnings
+cargo test --all-features
+cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 ```
 
@@ -64,6 +64,9 @@ or `--json` output). The web site will wrap the same library.
   Monte Carlo simulations.
 - `report.rs`: `report::build` turns the results into the report (yearly
   rows, success rates, percentile balance bands) that both outputs use.
+- `typescript.rs`: TypeScript types for the plan, defaults, validation
+  errors and report, for TypeScript programs that use the engine. Built
+  only with the `typescript` feature.
 - `returns.csv`: the historical returns, embedded at build time.
 
 ## Personal and local files

@@ -79,6 +79,11 @@ line program uses: `Input::from_yaml` parses and validates a plan,
 `runner::run_all` runs all the simulations, and `report::build` analyzes their
 results. `defaults::plan_defaults` gives the defaults for building a new plan,
 such as the retirement age and allocation, for programs like a web site.
+`Input::validate` returns every problem with a plan, each naming the person and
+field, so a program such as a website can show each one beside the right
+input. Built with the `typescript` feature, `typescript::export_all` writes
+TypeScript types for the plan, the defaults, the validation errors and the
+report, for programs written in TypeScript.
 
 ## Configuration Values
 

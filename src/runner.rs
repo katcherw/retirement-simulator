@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn test_unvalidated_plan_is_rejected() {
-        // a plan built in code, e.g. by the web site, skips from_yaml
+        // a plan built in code, e.g. by a website, skips from_yaml
         let start_date = NaiveDate::from_ymd_opt(2026, 1, 15).unwrap();
         let text = std::fs::read_to_string("input.yaml").unwrap();
         let mut input = Input::from_yaml(&text, start_date).unwrap();
