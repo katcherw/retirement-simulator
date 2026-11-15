@@ -4,7 +4,7 @@
  * Simulation engine: parses and validates a retirement plan (input), runs
  * the uniform, historical, and Monte Carlo simulations (runner), and
  * analyzes the results (report). Used by the command line program, and
- * later by the web site.
+ * by other programs such as a website.
  **************************************************************************/
 
 pub mod defaults;

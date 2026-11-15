@@ -16,7 +16,7 @@ ts-rs = { version = "12.0.1", optional = true, features = ["chrono-impl"] }
 
 [features]
 # TypeScript types for the plan, the plan defaults, validation errors and the
-# report, for a web site that uses the engine. See src/typescript.rs.
+# report, for TypeScript programs that use the engine. See src/typescript.rs.
 typescript = ["dep:ts-rs"]
 
 # rand needs a random source to compile for the browser. The simulations

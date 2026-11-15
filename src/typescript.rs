@@ -1,11 +1,12 @@
 /**************************************************************************
  * typescript.rs
  *
- * TypeScript types for what a web site sends to and gets back from the
- * engine as JSON: the plan, the plan defaults, validation errors and the
- * report. Built only with the "typescript" feature. The types are made
- * from the Rust structs, so a change here shows up as a type error in the
- * web site instead of a silent bug.
+ * TypeScript types for the JSON a TypeScript program, such as a website
+ * running the engine as WebAssembly, sends to and gets back from the
+ * engine: the plan, the plan defaults, validation errors and the report.
+ * Built only with the "typescript" feature. The types are made from the
+ * Rust structs, so a change here shows up as a type error in that program
+ * instead of a silent bug.
  **************************************************************************/
 
 use std::path::Path;

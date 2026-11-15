@@ -119,7 +119,7 @@ impl Input {
     }
 
     // the plan in the same format as the input file, e.g. to save a plan
-    // entered on the web site
+    // entered on a website
     pub fn to_yaml(&self) -> Result<String, String> {
         serde_yaml_ng::to_string(self).map_err(|e| e.to_string())
     }

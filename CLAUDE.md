@@ -65,8 +65,8 @@ or `--json` output). The web site will wrap the same library.
 - `report.rs`: `report::build` turns the results into the report (yearly
   rows, success rates, percentile balance bands) that both outputs use.
 - `typescript.rs`: TypeScript types for the plan, defaults, validation
-  errors and report, for the web site. Built only with the `typescript`
-  feature.
+  errors and report, for TypeScript programs that use the engine. Built
+  only with the `typescript` feature.
 - `returns.csv`: the historical returns, embedded at build time.
 
 ## Personal and local files
